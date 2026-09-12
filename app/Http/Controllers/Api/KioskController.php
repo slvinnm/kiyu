@@ -35,6 +35,7 @@ class KioskController extends Controller
     {
         $acquisition = $this->queueAcquisitionService->acquire(
             $request->string('department_code')->toString(),
+            $request->input('idempotency_key'),
         );
 
         return response()->json([
