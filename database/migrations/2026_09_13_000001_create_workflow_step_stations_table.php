@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -21,7 +22,7 @@ return new class extends Migration
         DB::table('workflow_steps')
             ->select(['id', 'station_id'])
             ->orderBy('id')
-            ->eachById(function ($step): void {
+            ->eachById(function (object $step): void {
                 DB::table('workflow_step_stations')->insertOrIgnore([
                     'workflow_step_id' => $step->id,
                     'station_id' => $step->station_id,
