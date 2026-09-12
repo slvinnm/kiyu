@@ -42,6 +42,6 @@ class KioskController extends Controller
             'success' => true,
             'message' => 'Queue acquired successfully.',
             'data' => new QueueAcquisitionResource($acquisition),
-        ], 201);
+        ], $acquisition->wasRecentlyCreated ? 201 : 200);
     }
 }
