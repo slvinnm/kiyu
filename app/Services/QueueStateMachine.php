@@ -14,13 +14,14 @@ class QueueStateMachine
             QueueStatus::SKIPPED->value,
             QueueStatus::CANCELLED->value,
             QueueStatus::NO_SHOW->value,
+            QueueStatus::TRANSFERRED->value,
         ],
         QueueStatus::CALLED->value => [
             QueueStatus::IN_PROGRESS->value,
             QueueStatus::ON_HOLD->value,
             QueueStatus::SKIPPED->value,
             QueueStatus::CANCELLED->value,
-            QueueStatus::NO_SHOW->value,
+            QueueStatus::TRANSFERRED->value,
         ],
         QueueStatus::IN_PROGRESS->value => [
             QueueStatus::COMPLETED->value,
@@ -32,24 +33,20 @@ class QueueStateMachine
             QueueStatus::CALLED->value,
             QueueStatus::CANCELLED->value,
         ],
-        QueueStatus::COMPLETED->value => [
-            QueueStatus::TRANSFERRED->value,
-        ],
+        QueueStatus::COMPLETED->value => [],
         QueueStatus::SKIPPED->value => [
             QueueStatus::CANCELLED->value,
         ],
         QueueStatus::CANCELLED->value => [],
-        QueueStatus::NO_SHOW->value => [
-            QueueStatus::CREATED->value,
-        ],
+        QueueStatus::NO_SHOW->value => [],
         QueueStatus::TRANSFERRED->value => [],
     ];
 
     public function canTransition(QueueTicket $ticket, QueueStatus $to): bool
     {
         $from = $ticket->status;
-        if ($from === $to) {
-            return true;
+        if ($from->value === $to->value) {
+            return false;
         }
         $allowed = $this->validTransitions[$from->value] ?? [];
         return in_array($to->value, $allowed);
@@ -92,20 +89,49 @@ class QueueStateMachine
         return true;
     }
 
+    /**
+     * Eligibility for callNext():
+     * Only CREATED tickets are eligible.
+     * ON_HOLD must never be selected by callNext().
+     * CALLED tickets must not be re-selected.
+     */
     public function isEligibleForCall(QueueTicket $ticket): bool
     {
-        return in_array($ticket->status, [
-            QueueStatus::CREATED->value,
-            QueueStatus::CALLED->value,
-            QueueStatus::ON_HOLD->value,
-        ]);
+        return $ticket->status === QueueStatus::CREATED;
     }
 
     /**
-     * Critical invariant: ON_HOLD must NOT be selected by callNext().
+     * Eligibility for callNext selection:
+     * Only CREATED status is eligible.
+     * This is the invariant for callNext().
      */
     public function isEligibleForNextSelection(QueueTicket $ticket): bool
     {
-        return $ticket->status === QueueStatus::CREATED->value || $ticket->status === QueueStatus::CALLED->value;
+        return $ticket->status === QueueStatus::CREATED->value;
+    }
+
+    /**
+     * Eligibility for resume:
+     * Only ON_HOLD → CALLED is valid.
+     */
+    public function isEligibleForResume(QueueTicket $ticket): bool
+    {
+        return $ticket->status === QueueStatus::ON_HOLD;
+    }
+
+    /**
+     * Eligibility for start (CALLED → IN_PROGRESS).
+     */
+    public function isEligibleToStart(QueueTicket $ticket): bool
+    {
+        return $ticket->status === QueueStatus::CALLED;
+    }
+
+    /**
+     * Eligibility for completion (IN_PROGRESS → COMPLETED).
+     */
+    public function isEligibleForCompletion(QueueTicket $ticket): bool
+    {
+        return $ticket->status === QueueStatus::IN_PROGRESS;
     }
 }

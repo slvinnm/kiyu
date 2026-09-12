@@ -51,13 +51,15 @@ class WorkflowEngine
                 $station = $initialStep->station;
                 if ($station) {
                     $number = (new QueueNumberGenerator())->generate($station);
+                    $internalSequence = (new QueueNumberGenerator())->getSequence($station);
+
                     $ticket = QueueTicket::create([
                         'visit_id' => $visit->id,
                         'visit_workflow_step_id' => $visitWorkflowStep->id,
                         'station_id' => $station->id,
                         'queue_number' => $number,
-                        'priority' => Priority::NORMAL->value,
-                        'internal_sequence' => 0,
+                        'priority' => $this->resolvePriorityForStep($visit, $firstQueueStep),
+                        'internal_sequence' => $internalSequence,
                         'status' => QueueStatus::CREATED->value,
                     ]);
 
@@ -150,13 +152,15 @@ class WorkflowEngine
                 $station = $nextStep->station;
                 if ($station) {
                     $number = (new QueueNumberGenerator())->generate($station);
+                    $internalSequence = (new QueueNumberGenerator())->getSequence($station);
+
                     $nextTicket = QueueTicket::create([
                         'visit_id' => $visit->id,
                         'visit_workflow_step_id' => $nextVisitWorkflowStep->id,
                         'station_id' => $station->id,
                         'queue_number' => $number,
-                        'priority' => Priority::NORMAL->value,
-                        'internal_sequence' => 0,
+                        'priority' => $this->resolvePriorityForStep($visit, $firstQueueStep),
+                        'internal_sequence' => $internalSequence,
                         'status' => \App\Enums\QueueStatus::CREATED->value,
                     ]);
 
@@ -173,6 +177,13 @@ class WorkflowEngine
 
             return ['next_step' => $nextStep, 'visit_completed' => false, 'ticket' => $nextVisitWorkflowStep->fresh()];
         });
+    }
+
+    private function resolvePriorityForStep(Visit $visit, WorkflowStep $step): int
+    {
+        // Domain/business rule: priority is derived from visit context
+        // For now, use normal priority; future rules (referral, emergency) can extend
+        return Priority::NORMAL->value;
     }
 
     public function createOrUpdateVisitWorkflowStep(VisitWorkflow $workflow, WorkflowStep $step): VisitWorkflowStep

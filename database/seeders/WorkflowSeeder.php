@@ -3,65 +3,94 @@
 namespace Database\Seeders;
 
 use App\Models\Department;
+use App\Models\Station;
 use App\Models\Workflow;
-use App\Models\WorkflowVersion;
 use App\Models\WorkflowStep;
+use App\Models\WorkflowVersion;
 use Illuminate\Database\Seeder;
 
 class WorkflowSeeder extends Seeder
 {
     public function run(): void
     {
-        // Create a workflow for Poli Umum
-        $dept = Department::where('code', 'POLIUM')->first();
-        $work = Workflow::create([
-            'department_id' => $dept->id,
+        // Look up departments by code (not hard-coded IDs)
+        $deptUmum = Department::where('code', 'POLIUM')->firstOrFail();
+        $deptAnak = Department::where('code', 'POLIA')->firstOrFail();
+        $deptGigi = Department::where('code', 'POLIGI')->firstOrFail();
+        $deptMata = Department::where('code', 'POLIM')->firstOrFail();
+
+        // Look up stations by code (not hard-coded IDs)
+        $stationRegUmum = Station::where('code', 'REG-U')->firstOrFail();
+        $stationNurUmum = Station::where('code', 'NUR-U')->firstOrFail();
+        $stationDocUmum = Station::where('code', 'DOC-U')->firstOrFail();
+        $stationRegAnak = Station::where('code', 'REG-A')->firstOrFail();
+        $stationNurAnak = Station::where('code', 'NUR-A')->firstOrFail();
+        $stationDocAnak = Station::where('code', 'DOC-A')->firstOrFail();
+        $stationRegGigi = Station::where('code', 'REG-G')->firstOrFail();
+        $stationDocGigi = Station::where('code', 'DOC-G')->firstOrFail();
+        $stationRegMata = Station::where('code', 'REG-M')->firstOrFail();
+        $stationDocMata = Station::where('code', 'DOC-M')->firstOrFail();
+
+        // Create workflow for Poli Umum
+        $workUmum = Workflow::create([
+            'department_id' => $deptUmum->id,
             'name' => 'Poli Umum Workflow',
             'is_active' => true,
         ]);
-
-        $version = WorkflowVersion::create([
-            'workflow_id' => $work->id,
+        $verUmum = WorkflowVersion::create([
+            'workflow_id' => $workUmum->id,
             'version_number' => 1,
             'is_active' => true,
             'published_at' => now(),
         ]);
-
-        // Create workflow steps following typical multi-step workflow
-        $steps = [
-            [
-                'sequence' => 1,
-                'name' => 'Registration',
-                'station_id' => 1, // Registration Umum
-                'requires_queue' => true,
-                'is_optional' => false,
-                'is_repeatable' => false,
-                'can_skip' => false,
-            ],
-            [
-                'sequence' => 2,
-                'name' => 'Nurse Assessment',
-                'station_id' => 2, // Nurse Umum
-                'requires_queue' => true,
-                'is_optional' => false,
-                'is_repeatable' => false,
-                'can_skip' => false,
-            ],
-            [
-                'sequence' => 3,
-                'name' => 'Doctor Consultation',
-                'station_id' => 3, // Doctor Umum
-                'requires_queue' => true,
-                'is_optional' => false,
-                'is_repeatable' => false,
-                'can_skip' => false,
-            ],
+        $stepsUmum = [
+            ['workflow_version_id' => $verUmum->id, 'station_id' => $stationRegUmum->id, 'name' => 'Registration', 'sequence' => 1, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+            ['workflow_version_id' => $verUmum->id, 'station_id' => $stationNurUmum->id, 'name' => 'Nurse Assessment', 'sequence' => 2, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+            ['workflow_version_id' => $verUmum->id, 'station_id' => $stationDocUmum->id, 'name' => 'Doctor Consultation', 'sequence' => 3, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
         ];
+        foreach ($stepsUmum as $step) {
+            WorkflowStep::create($step);
+        }
 
-        foreach ($steps as $step) {
-            WorkflowStep::create(array_merge($step, [
-                'workflow_version_id' => $version->id,
-            ]));
+        // Create workflow for Poli Anak
+        $workAnak = Workflow::create([
+            'department_id' => $deptAnak->id,
+            'name' => 'Poli Anak Workflow',
+            'is_active' => true,
+        ]);
+        $verAnak = WorkflowVersion::create([
+            'workflow_id' => $workAnak->id,
+            'version_number' => 1,
+            'is_active' => true,
+            'published_at' => now(),
+        ]);
+        $stepsAnak = [
+            ['workflow_version_id' => $verAnak->id, 'station_id' => $stationRegAnak->id, 'name' => 'Registration', 'sequence' => 1, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+            ['workflow_version_id' => $verAnak->id, 'station_id' => $stationNurAnak->id, 'name' => 'Nurse Assessment', 'sequence' => 2, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+            ['workflow_version_id' => $verAnak->id, 'station_id' => $stationDocAnak->id, 'name' => 'Doctor Consultation', 'sequence' => 3, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+        ];
+        foreach ($stepsAnak as $step) {
+            WorkflowStep::create($step);
+        }
+
+        // Create workflow for Poli Gigi
+        $workGigi = Workflow::create([
+            'department_id' => $deptGigi->id,
+            'name' => 'Poli Gigi Workflow',
+            'is_active' => true,
+        ]);
+        $verGigi = WorkflowVersion::create([
+            'workflow_id' => $workGigi->id,
+            'version_number' => 1,
+            'is_active' => true,
+            'published_at' => now(),
+        ]);
+        $stepsGigi = [
+            ['workflow_version_id' => $verGigi->id, 'station_id' => $stationRegGigi->id, 'name' => 'Registration', 'sequence' => 1, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+            ['workflow_version_id' => $verGigi->id, 'station_id' => $stationDocGigi->id, 'name' => 'Doctor Consultation', 'sequence' => 2, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+        ];
+        foreach ($stepsGigi as $step) {
+            WorkflowStep::create($step);
         }
     }
 }

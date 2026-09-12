@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\Priority;
 use App\Enums\QueueStatus;
 use App\Models\QueueTicket;
 use App\Models\Station;
@@ -13,14 +12,11 @@ class QueueSelector
     public function callNext(Station $station): ?QueueTicket
     {
         return DB::transaction(function () use ($station) {
-            // Lock eligible tickets for station, ordered correctly
+            // ONLY select genuinely waiting CREATED tickets
             $ticket = QueueTicket::where('station_id', $station->id)
-                ->whereIn('status', [
-                    QueueStatus::CREATED->value,
-                    QueueStatus::CALLED->value,
-                ])
+                ->where('status', QueueStatus::CREATED->value)
                 ->orderByDesc('priority')
-                ->orderBy('internal_sequence')
+                ->orderBy('internal_sequence', 'asc')
                 ->lockForUpdate()
                 ->first();
 
@@ -44,7 +40,7 @@ class QueueSelector
                 QueueStatus::ON_HOLD->value,
             ])
             ->orderByDesc('priority')
-            ->orderBy('internal_sequence')
+            ->orderBy('internal_sequence', 'asc')
             ->limit($limit)
             ->get();
     }
