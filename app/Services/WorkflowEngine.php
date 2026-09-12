@@ -14,197 +14,277 @@ use App\Models\VisitWorkflow;
 use App\Models\VisitWorkflowStep;
 use App\Models\WorkflowStep;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class WorkflowEngine
 {
-    public function createFromIntake(Visit $visit, int $initialStepSequence): ?QueueTicket
-    {
-        return DB::transaction(function () use ($visit, $initialStepSequence) {
-            $lockedVisit = Visit::whereKey($visit->id)
+    public function __construct(
+        private ?WorkflowRequirementEvaluator $requirementEvaluator = null,
+    ) {
+        $this->requirementEvaluator ??= new WorkflowRequirementEvaluator;
+    }
+
+    public function createFromIntake(
+        Visit $visit,
+        int $initialStepSequence,
+        array $context = [],
+    ): ?QueueTicket {
+        return DB::transaction(function () use ($visit, $initialStepSequence, $context) {
+            $lockedVisit = Visit::query()
+                ->whereKey($visit->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             $workflowVersion = $lockedVisit->workflowVersion;
+
             $initialStep = $workflowVersion->steps()
-                ->where('sequence', $initialStepSequence)
+                ->where('sequence', '>=', $initialStepSequence)
+                ->orderBy('sequence')
                 ->first();
 
             if (! $initialStep) {
                 return null;
             }
 
-            $visitWorkflow = VisitWorkflow::firstOrCreate([
+            $visitWorkflow = VisitWorkflow::query()->firstOrCreate([
                 'visit_id' => $lockedVisit->id,
                 'workflow_version_id' => $workflowVersion->id,
             ], [
                 'status' => VisitWorkflowStatus::ACTIVE->value,
             ]);
 
-            /*
-             * The first execution of the initial workflow step is always
-             * execution number 1. This lookup makes intake idempotent.
-             */
-            $existingStep = VisitWorkflowStep::where('visit_workflow_id', $visitWorkflow->id)
+            $existingInitialStep = VisitWorkflowStep::query()
+                ->where('visit_workflow_id', $visitWorkflow->id)
                 ->where('workflow_step_id', $initialStep->id)
                 ->where('execution_number', 1)
                 ->first();
 
-            if ($existingStep) {
-                return QueueTicket::where('visit_workflow_step_id', $existingStep->id)
+            if ($existingInitialStep) {
+                return $existingInitialStep->queueTickets()
                     ->where('status', QueueStatus::CREATED->value)
+                    ->latest('id')
                     ->first();
             }
 
-            $ticket = $this->createStepsUntilQueue(
-                $lockedVisit,
-                $visitWorkflow,
-                $initialStep
+            return $this->advanceUntilQueue(
+                visit: $lockedVisit,
+                visitWorkflow: $visitWorkflow,
+                fromSequence: $initialStep->sequence,
+                context: $this->mergeContext($this->baseContext($lockedVisit), $context),
             );
-
-            if (! $ticket) {
-                $this->completeWorkflow($lockedVisit, $visitWorkflow);
-            }
-
-            return $ticket;
         });
     }
 
-    public function completeCurrentStep(QueueTicket $ticket): ?array
-    {
+    public function completeCurrentStep(
+        QueueTicket $ticket,
+        array $context = [],
+    ): array {
+        $visit = Visit::query()
+            ->whereKey($ticket->visit_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $visitWorkflow = VisitWorkflow::query()
+            ->where('visit_id', $visit->id)
+            ->where('workflow_version_id', $visit->workflow_version_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
         $visitWorkflowStep = VisitWorkflowStep::query()
             ->whereKey($ticket->visit_workflow_step_id)
             ->lockForUpdate()
             ->firstOrFail();
-        $visit = Visit::query()->whereKey($ticket->visit_id)->lockForUpdate()->firstOrFail();
+
+        $workflowStep = $visitWorkflowStep->workflowStep;
+        $evaluationContext = $this->mergeContext(
+            $this->baseContext($visit, $ticket, $visitWorkflowStep, $workflowStep),
+            $context,
+        );
+
+        if (! $this->requirementEvaluator->passes($workflowStep->completion_requirements, $evaluationContext)) {
+            throw ValidationException::withMessages([
+                'completion_requirements' => "Workflow step '{$workflowStep->name}' cannot be completed because its completion requirements are not satisfied.",
+            ]);
+        }
 
         $visitWorkflowStep->update([
             'status' => VisitWorkflowStepStatus::COMPLETED->value,
             'completed_at' => now(),
         ]);
 
-        $workflowVersion = $visit->workflowVersion;
-        $steps = $workflowVersion->steps()->get();
-        $currentSequence = $visitWorkflowStep->workflowStep->sequence;
+        if ($workflowStep->is_repeatable && ($context['repeat_current_step'] ?? false) === true) {
+            $repeatTicket = $this->createStepExecution(
+                visit: $visit,
+                visitWorkflow: $visitWorkflow,
+                workflowStep: $workflowStep,
+            );
 
-        $visitWorkflow = VisitWorkflow::query()
-            ->where('visit_id', $visit->id)
-            ->where('workflow_version_id', $workflowVersion->id)
-            ->lockForUpdate()
-            ->firstOrFail();
-
-        $nextStep = null;
-
-        foreach ($steps as $step) {
-            if ($step->sequence > $currentSequence) {
-                $nextStep = $step;
-                break;
-            }
-        }
-
-        if (! $nextStep) {
-            $this->completeWorkflow($visit, $visitWorkflow);
+            $visit->update(['status' => VisitStatus::WAITING->value]);
 
             return [
-                'next_step' => null,
-                'visit_completed' => true,
-                'ticket' => $ticket->fresh(),
+                'next_step' => $workflowStep,
+                'visit_completed' => false,
+                'ticket' => $repeatTicket,
+                'repeated' => true,
             ];
         }
 
-        $nextTicket = $this->createStepsUntilQueue($visit, $visitWorkflow, $nextStep);
+        $nextTicket = $this->advanceUntilQueue(
+            visit: $visit,
+            visitWorkflow: $visitWorkflow,
+            fromSequence: $workflowStep->sequence + 1,
+            context: $evaluationContext,
+        );
 
-        if (! $nextTicket) {
-            $this->completeWorkflow($visit, $visitWorkflow);
+        if ($nextTicket) {
+            $visit->update(['status' => VisitStatus::WAITING->value]);
 
             return [
-                'next_step' => null,
-                'visit_completed' => true,
-                'ticket' => $ticket->fresh(),
+                'next_step' => $nextTicket->visitWorkflowStep->workflowStep,
+                'visit_completed' => false,
+                'ticket' => $nextTicket->fresh(),
+                'repeated' => false,
             ];
         }
+
+        $this->completeWorkflow($visit, $visitWorkflow);
 
         return [
-            'next_step' => $nextTicket->visitWorkflowStep->workflowStep,
-            'visit_completed' => false,
-            'ticket' => $nextTicket->fresh(),
+            'next_step' => null,
+            'visit_completed' => true,
+            'ticket' => $ticket->fresh(),
+            'repeated' => false,
         ];
     }
 
-    private function resolvePriorityForStep(
-        Visit $visit,
-        ?WorkflowStep $step = null
-    ): int {
-        return $visit->priority instanceof Priority
-            ? $visit->priority->value
-            : ($visit->priority ?? Priority::NORMAL->value);
+    public function skipCurrentStep(
+        QueueTicket $ticket,
+        ?string $reason = null,
+        array $context = [],
+    ): array {
+        $visit = Visit::query()
+            ->whereKey($ticket->visit_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $visitWorkflow = VisitWorkflow::query()
+            ->where('visit_id', $visit->id)
+            ->where('workflow_version_id', $visit->workflow_version_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $visitWorkflowStep = VisitWorkflowStep::query()
+            ->whereKey($ticket->visit_workflow_step_id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $workflowStep = $visitWorkflowStep->workflowStep;
+
+        if (! $workflowStep->can_skip) {
+            throw ValidationException::withMessages([
+                'ticket' => "Workflow step '{$workflowStep->name}' cannot be skipped.",
+            ]);
+        }
+
+        $visitWorkflowStep->update([
+            'status' => VisitWorkflowStepStatus::SKIPPED->value,
+            'completed_at' => now(),
+        ]);
+
+        if ($reason) {
+            $ticket->update([
+                'notes' => $reason.($ticket->notes ? " | {$ticket->notes}" : ''),
+            ]);
+        }
+
+        $nextTicket = $this->advanceUntilQueue(
+            visit: $visit,
+            visitWorkflow: $visitWorkflow,
+            fromSequence: $workflowStep->sequence + 1,
+            context: $this->mergeContext(
+                $this->baseContext($visit, $ticket, $visitWorkflowStep, $workflowStep),
+                $context,
+            ),
+        );
+
+        if ($nextTicket) {
+            $visit->update(['status' => VisitStatus::WAITING->value]);
+
+            return [
+                'next_step' => $nextTicket->visitWorkflowStep->workflowStep,
+                'visit_completed' => false,
+                'ticket' => $nextTicket->fresh(),
+            ];
+        }
+
+        $this->completeWorkflow($visit, $visitWorkflow);
+
+        return [
+            'next_step' => null,
+            'visit_completed' => true,
+            'ticket' => $ticket->fresh(),
+        ];
     }
 
     public function allocateExecutionNumber(
         VisitWorkflow $workflow,
-        ?WorkflowStep $step = null
+        ?WorkflowStep $step = null,
     ): int {
-        $lockedWorkflow = VisitWorkflow::whereKey($workflow->id)
+        $lockedWorkflow = VisitWorkflow::query()
+            ->whereKey($workflow->id)
             ->lockForUpdate()
             ->firstOrFail();
 
-        $query = VisitWorkflowStep::where(
-            'visit_workflow_id',
-            $lockedWorkflow->id
-        );
+        $query = VisitWorkflowStep::query()
+            ->where('visit_workflow_id', $lockedWorkflow->id);
 
         if ($step) {
             $query->where('workflow_step_id', $step->id);
         }
 
-        $maxExecution = $query->max('execution_number') ?? 0;
-
-        return $maxExecution + 1;
+        return ($query->max('execution_number') ?? 0) + 1;
     }
 
-    public function createOrUpdateVisitWorkflowStep(
-        VisitWorkflow $workflow,
-        WorkflowStep $step
-    ): VisitWorkflowStep {
-        /**
-         * Must be called inside an active database transaction.
-         * The caller owns the transaction boundary.
-         */
-        $executionNumber = $this->allocateExecutionNumber(
-            $workflow,
-            $step
-        );
-
-        return VisitWorkflowStep::create([
-            'visit_workflow_id' => $workflow->id,
-            'workflow_step_id' => $step->id,
-            'execution_number' => $executionNumber,
-            'status' => VisitWorkflowStepStatus::PENDING->value,
-        ]);
-    }
-
-    private function createStepsUntilQueue(
+    private function advanceUntilQueue(
         Visit $visit,
         VisitWorkflow $visitWorkflow,
-        WorkflowStep $step
+        int $fromSequence,
+        array $context,
     ): ?QueueTicket {
         $steps = $visit->workflowVersion->steps()
-            ->where('sequence', '>=', $step->sequence)
+            ->where('sequence', '>=', $fromSequence)
+            ->orderBy('sequence')
             ->get();
 
         foreach ($steps as $workflowStep) {
-            if ($workflowStep->requires_queue && ! $workflowStep->station) {
-                throw new \LogicException(
-                    "Workflow step '{$workflowStep->name}' (sequence {$workflowStep->sequence}) requires a queue but has no station."
-                );
+            if (! $this->isStepApplicable($workflowStep, $context)) {
+                $this->createSkippedStep($visitWorkflow, $workflowStep);
+                continue;
             }
 
-            $visitWorkflowStep = $this->createOrUpdateVisitWorkflowStep(
-                $visitWorkflow,
-                $workflowStep
-            );
-
             if (! $workflowStep->requires_queue) {
-                $visitWorkflowStep->update([
+                $runtimeStep = $this->createStepExecution(
+                    visit: $visit,
+                    visitWorkflow: $visitWorkflow,
+                    workflowStep: $workflowStep,
+                    createQueue: false,
+                );
+
+                if (! $this->requirementEvaluator->passes($workflowStep->completion_requirements, $context)) {
+                    if ($workflowStep->is_optional) {
+                        $runtimeStep->update([
+                            'status' => VisitWorkflowStepStatus::SKIPPED->value,
+                            'completed_at' => now(),
+                        ]);
+                        continue;
+                    }
+
+                    throw ValidationException::withMessages([
+                        'completion_requirements' => "Workflow step '{$workflowStep->name}' cannot complete because its completion requirements are not satisfied.",
+                    ]);
+                }
+
+                $runtimeStep->update([
                     'status' => VisitWorkflowStepStatus::COMPLETED->value,
                     'completed_at' => now(),
                 ]);
@@ -212,27 +292,106 @@ class WorkflowEngine
                 continue;
             }
 
-            $allocation = (new QueueNumberGenerator)->allocate($workflowStep->station);
-            $ticket = QueueTicket::create([
-                'visit_id' => $visit->id,
-                'visit_workflow_step_id' => $visitWorkflowStep->id,
-                'station_id' => $workflowStep->station_id,
-                'queue_number' => $allocation['queue_number'],
-                'priority' => $this->resolvePriorityForStep($visit, $workflowStep),
-                'internal_sequence' => $allocation['internal_sequence'],
-                'status' => QueueStatus::CREATED->value,
-            ]);
-
-            $ticket->events()->create([
-                'event_type' => QueueEventType::CREATED,
-                'from_status' => null,
-                'to_status' => QueueStatus::CREATED->value,
-            ]);
-
-            return $ticket;
+            return $this->createStepExecution(
+                visit: $visit,
+                visitWorkflow: $visitWorkflow,
+                workflowStep: $workflowStep,
+            );
         }
 
         return null;
+    }
+
+    private function isStepApplicable(WorkflowStep $step, array $context): bool
+    {
+        return $this->requirementEvaluator->passes($step->entry_conditions, $context);
+    }
+
+    private function createStepExecution(
+        Visit $visit,
+        VisitWorkflow $visitWorkflow,
+        WorkflowStep $workflowStep,
+        bool $createQueue = true,
+    ): ?QueueTicket {
+        if ($workflowStep->requires_queue && ! $workflowStep->station) {
+            throw new \LogicException(
+                "Workflow step '{$workflowStep->name}' requires a queue but has no station."
+            );
+        }
+
+        $executionNumber = $this->allocateExecutionNumber($visitWorkflow, $workflowStep);
+
+        $runtimeStep = VisitWorkflowStep::create([
+            'visit_workflow_id' => $visitWorkflow->id,
+            'workflow_step_id' => $workflowStep->id,
+            'execution_number' => $executionNumber,
+            'status' => VisitWorkflowStepStatus::PENDING->value,
+        ]);
+
+        if (! $createQueue || ! $workflowStep->requires_queue) {
+            return null;
+        }
+
+        $allocation = (new QueueNumberGenerator)->allocate($workflowStep->station);
+
+        $ticket = QueueTicket::create([
+            'visit_id' => $visit->id,
+            'visit_workflow_step_id' => $runtimeStep->id,
+            'station_id' => $workflowStep->station_id,
+            'queue_number' => $allocation['queue_number'],
+            'priority' => $this->resolvePriorityForStep($visit),
+            'internal_sequence' => $allocation['internal_sequence'],
+            'status' => QueueStatus::CREATED->value,
+        ]);
+
+        $ticket->events()->create([
+            'event_type' => QueueEventType::CREATED,
+            'from_status' => null,
+            'to_status' => QueueStatus::CREATED->value,
+        ]);
+
+        return $ticket;
+    }
+
+    private function createSkippedStep(
+        VisitWorkflow $visitWorkflow,
+        WorkflowStep $workflowStep,
+    ): VisitWorkflowStep {
+        $executionNumber = $this->allocateExecutionNumber($visitWorkflow, $workflowStep);
+
+        return VisitWorkflowStep::create([
+            'visit_workflow_id' => $visitWorkflow->id,
+            'workflow_step_id' => $workflowStep->id,
+            'execution_number' => $executionNumber,
+            'status' => VisitWorkflowStepStatus::SKIPPED->value,
+            'completed_at' => now(),
+        ]);
+    }
+
+    private function resolvePriorityForStep(Visit $visit): int
+    {
+        return $visit->priority instanceof Priority
+            ? $visit->priority->value
+            : ($visit->priority ?? Priority::NORMAL->value);
+    }
+
+    private function baseContext(
+        Visit $visit,
+        ?QueueTicket $ticket = null,
+        ?VisitWorkflowStep $visitWorkflowStep = null,
+        ?WorkflowStep $workflowStep = null,
+    ): array {
+        return [
+            'visit' => $visit->toArray(),
+            'ticket' => $ticket?->toArray() ?? [],
+            'runtime_step' => $visitWorkflowStep?->toArray() ?? [],
+            'workflow_step' => $workflowStep?->toArray() ?? [],
+        ];
+    }
+
+    private function mergeContext(array $base, array $context): array
+    {
+        return array_replace_recursive($base, $context);
     }
 
     private function completeWorkflow(Visit $visit, VisitWorkflow $visitWorkflow): void
@@ -241,6 +400,9 @@ class WorkflowEngine
             'status' => VisitStatus::COMPLETED->value,
             'completed_at' => now(),
         ]);
-        $visitWorkflow->update(['status' => VisitWorkflowStatus::COMPLETED->value]);
+
+        $visitWorkflow->update([
+            'status' => VisitWorkflowStatus::COMPLETED->value,
+        ]);
     }
 }

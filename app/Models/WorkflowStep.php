@@ -21,6 +21,7 @@ class WorkflowStep extends Model
         'is_repeatable',
         'can_skip',
         'completion_requirements',
+        'entry_conditions',
     ];
 
     protected $casts = [
@@ -29,6 +30,7 @@ class WorkflowStep extends Model
         'is_repeatable' => 'boolean',
         'can_skip' => 'boolean',
         'completion_requirements' => 'array',
+        'entry_conditions' => 'array',
     ];
 
     public function workflowVersion(): BelongsTo
