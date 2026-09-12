@@ -1,55 +1,66 @@
-# Phase 1.9 Status — Concurrency & Workflow Execution Integrity (Pass 3 — Transaction Boundaries)
+# Phase 1.9 Status — Queue Mutation Concurrency (Pass 4)
 
-## Date: 2026-09-12 (Pass 3)
+## Date: 2026-09-12 (Pass 4)
 
-## Changes from Pass 2
+## Fix Applied
 
-Pass 2 restored WorkflowEngine (visit lock, allocator, non-queue progression). Pass 3 fixes remaining transaction-boundary and concurrency issues.
+Every QueueService method that mutates a QueueTicket now acquires a row lock before reading status or applying state changes:
 
-## Actual Source Changes (verified)
+- `startTicket()` → `QueueTicket::whereKey()->lockForUpdate()->firstOrFail()` (line 84)
+- `holdTicket()` → `QueueTicket::whereKey()->lockForUpdate()->firstOrFail()` (line 169)
+- `resumeTicket()` → `QueueTicket::whereKey()->lockForUpdate()->firstOrFail()` (line 197)
+- `skipTicket()` → `QueueTicket::whereKey()->lockForUpdate()->firstOrFail()` (line 228)
+- `cancelTicket()` → `QueueTicket::whereKey()->lockForUpdate()->firstOrFail()` (line 264)
+- `transferTicket()` → `QueueTicket::with(...)->whereKey()->lockForUpdate()->firstOrFail()` (line 306)
+- `completeTicket()` → preserved existing `lockForUpdate()` (line 125)
 
-1. QueueSelector::callNext() — removed DB::transaction() wrapper; selection only performs row lock.
-2. QueueService::callNext() — retains DB::transaction(); owns select + CREATED→CALLED transition (single transaction boundary).
-3. WorkflowEngine::completeCurrentStep() — removed DB::transaction() wrapper; participates in QueueService::completeTicket() transaction.
-4. WorkflowEngine::createOrUpdateVisitWorkflowStep() — uses only allocator (no double manual lock); documents: must be called inside active transaction.
-5. WorkflowEngine::allocateExecutionNumber() — no inner DB::transaction(); relies on caller transaction.
-6. QueueStateMachine::isEligibleForNextSelection() — fixed enum comparison (`=== QueueStatus::CREATED` not `.value`).
-7. QueueNumberGenerator::allocate() — retains DB::transaction() (all callers: createFromIntake, completeCurrentStep, QueueService::transferTicket are all inside transactions; own transaction is safe and preserves retry/atomicity).
-8. QueueNumberGenerator.php — fixed syntax error (extra closing brace removed); `getSequence()` remains removed.
+## Transfer Behavior After Lock
 
-## Transaction Ownership After Fix
+The entire transfer transaction holds the source QueueTicket lock from selection through:
+- eligibility validation
+- source transition to TRANSFERRED
+- target station lookup
+- target workflow step lookup
+- replacement QueueTicket creation
+- CREATED event on replacement
+- commit
 
-QueueService::callNext() → owns select + transition
-QueueSelector::callNext() → selection + lock only (no transaction)
-QueueService::completeTicket() → owns lock + complete + workflow progress
-WorkflowEngine::completeCurrentStep() → participates in caller transaction
-WorkflowEngine::allocateExecutionNumber() → participates in caller transaction (no inner transaction)
-createOrUpdateVisitWorkflowStep() → participates in caller transaction (contract: must be called inside active DB transaction)
-QueueNumberGenerator::allocate() → owns its own transaction (atomic counter increment + retry; callers are all transactional)
+A concurrent second transfer request for the same source will wait for the lock; upon acquiring it, it reads TRANSFERRED and fails eligibility, creating zero replacement tickets.
 
-## Verification Performed
+## Enum Consistency
 
-- `php -l` passed on: QueueSelector.php, QueueService.php, WorkflowEngine.php, QueueStateMachine.php, QueueNumberGenerator.php
-- `grep` confirmed QueueSelector has no DB::transaction()
-- `grep` confirmed completeCurrentStep() has no inner DB::transaction()
-- `grep` confirmed QueueStateMachine uses enum comparison (`=== QueueStatus::CREATED`)
-- `grep` confirmed QueueNumberGenerator.php syntax valid (passes `php -l`)
-- `grep` confirmed getSequence() removed; no app-level references
-- Code inspection: all VisitWorkflowStep::create() paths use allocator; all execution_number runtime assignments central
+`QueueStateMachine::isEligibleForNextSelection()` uses `=== QueueStatus::CREATED` (enum comparison), matching the corrected pattern from Pass 3.
 
-## Not Executed (honest)
+## Transaction Ownership (unchanged from Pass 3)
 
-- Concurrent callNext() (scenario A): NOT EXECUTED
-- Concurrent completeTicket() (scenario B): NOT EXECUTED
-- Concurrent initialization (scenario C): NOT EXECUTED
-- Concurrent execution-number allocation (scenario D): NOT EXECUTED
-- Concurrent queue-number allocation (scenario E): NOT EXECUTED
-- Full migrate:fresh --seed: NOT EXECUTED
-- Database constraint violation stress testing: NOT EXECUTED
-- Full A-J manual scenarios: NOT EXECUTED
+- QueueService::callNext() → owns transaction (selection + transition)
+- QueueSelector::callNext() → selection/lock only, no transaction
+- QueueService::completeTicket() → owns transaction (completion + workflow progress)
+- WorkflowEngine::completeCurrentStep() → caller transaction participant
+- QueueStateMachine::apply() → transaction-neutral
 
-These remain NOT EXECUTED; no claims of passing concurrent tests are made.
+## Verified by Code Inspection
 
-## Stop
+- All 7 mutation methods contain `whereKey($ticketId)->lockForUpdate()`
+- No mutation method uses `findOrFail()` without lock
+- QueueService::transferTicket() includes visit/workflow load with lock (line 308)
+- QueueNumberGenerator::allocate() syntax valid; getSequence() removed; no callers
+- QueueStateMachine event ownership preserved
+- No Phase 2 code added
 
-Do NOT proceed to Phase 2. Phase 1.9 corrective pass 3 completes the transaction-boundary and concurrency fixes in code structure only.
+## NOT EXECUTED (honest reporting)
+
+- A: Concurrent startTicket()
+- B: Concurrent holdTicket()
+- C: Concurrent resumeTicket()
+- D: Concurrent skipTicket()
+- E: Concurrent cancelTicket()
+- F: Concurrent transferTicket() (most critical — not executed)
+- G: Concurrent completeTicket()
+- H: Concurrent callNext()
+- Full migrate:fresh --seed
+- Manual A-J scenario verification
+
+## Suggested Commit
+
+`Fix: harden queue ticket mutation concurrency`

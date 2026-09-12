@@ -81,7 +81,9 @@ class QueueService
     public function startTicket(int $ticketId, ?int $startedByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $startedByUserId) {
-            $ticket = QueueTicket::findOrFail($ticketId);
+            $ticket = QueueTicket::whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             // Validate transition
             if (! $this->stateMachine->isEligibleToStart($ticket)) {
@@ -164,7 +166,9 @@ class QueueService
     public function holdTicket(int $ticketId, ?int $heldByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $heldByUserId) {
-            $ticket = QueueTicket::findOrFail($ticketId);
+            $ticket = QueueTicket::whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             if (! in_array($ticket->status->value, [
                     QueueStatus::CALLED->value,
@@ -190,7 +194,9 @@ class QueueService
     public function resumeTicket(int $ticketId, ?int $resumedByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $resumedByUserId) {
-            $ticket = QueueTicket::findOrFail($ticketId);
+            $ticket = QueueTicket::whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             // Validate eligibility for resume
             if (! $this->stateMachine->isEligibleForResume($ticket)) {
@@ -219,7 +225,9 @@ class QueueService
     public function skipTicket(int $ticketId, ?int $skippedByUserId = null, ?string $reason = null): bool
     {
         return DB::transaction(function () use ($ticketId, $skippedByUserId, $reason) {
-            $ticket = QueueTicket::findOrFail($ticketId);
+            $ticket = QueueTicket::whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             // Check if skip is allowed by workflow step
             $workflowStep = $ticket->visitWorkflowStep->workflowStep;
@@ -253,7 +261,9 @@ class QueueService
     public function cancelTicket(int $ticketId, ?int $cancelledByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $cancelledByUserId) {
-            $ticket = QueueTicket::findOrFail($ticketId);
+            $ticket = QueueTicket::whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             // Cannot cancel completed/skipped/etc. tickets
             if (! in_array($ticket->status->value, [
@@ -292,8 +302,10 @@ class QueueService
     public function transferTicket(int $ticketId, int $targetStationId, ?int $transferredByUserId = null): array
     {
         return DB::transaction(function () use ($ticketId, $targetStationId, $transferredByUserId) {
-            $ticket = QueueTicket::with(['visitWorkflowStep.workflowStep'])
-                ->findOrFail($ticketId);
+            $ticket = QueueTicket::with(['visitWorkflowStep.workflowStep', 'visit'])
+                ->whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             $targetStation = \App\Models\Station::findOrFail($targetStationId);
 
