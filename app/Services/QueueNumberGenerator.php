@@ -9,18 +9,22 @@ use Illuminate\Support\Facades\DB;
 class QueueNumberGenerator
 {
     /**
-     * Generate a human-readable queue number for a station.
+     * Atomically allocate both a queue number and internal sequence for one queue position.
      *
-     * Examples: A-001, T-018, C-011, L-001, R-001
+     * Returns both values in a single database transaction, guaranteeing they belong to the
+     * same counter row and are incremented atomically.
      *
-     * The method uses a date-scoped counter with row-level locking
-     * to prevent collisions under concurrent requests.
+     * Example return:
+     * [
+     *     'queue_number' => 'A-001',
+     *     'internal_sequence' => 1,
+     * ]
      *
      * @param Station $station
      * @param \DateTime|null $date Optional date to key the counter; defaults to today
-     * @return string
+     * @return array{queue_number: string, internal_sequence: int}
      */
-    public function generate(Station $station, ?\DateTime $date = null): string
+    public function allocate(Station $station, ?\DateTime $date = null): array
     {
         $counterDate = $date ? $date->format('Y-m-d') : now()->format('Y-m-d');
         $prefix = $station->queue_prefix;
@@ -44,10 +48,13 @@ class QueueNumberGenerator
                         ]);
 
                     $counter->increment('last_queue_number');
+                    $counter->increment('last_internal_sequence');
                     $counter->refresh();
 
-                    $number = str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
-                    return $prefix . '-' . $number;
+                    $queueNumber = $prefix . '-' . str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
+                    $internalSequence = $counter->last_internal_sequence;
+
+                    return ['queue_number' => $queueNumber, 'internal_sequence' => $internalSequence];
                 } catch (\Illuminate\Database\QueryException $e) {
                     if ($e->getCode() === '23000' && $retries < $maxRetries - 1) {
                         $retries++;
@@ -64,10 +71,13 @@ class QueueNumberGenerator
                 ->first();
 
             $counter->increment('last_queue_number');
+            $counter->increment('last_internal_sequence');
             $counter->refresh();
 
-            $number = str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
-            return $prefix . '-' . $number;
+            $queueNumber = $prefix . '-' . str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
+            $internalSequence = $counter->last_internal_sequence;
+
+            return ['queue_number' => $queueNumber, 'internal_sequence' => $internalSequence];
         });
     }
 

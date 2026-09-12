@@ -37,7 +37,12 @@ class CreateVisit
             $department = Department::where('code', $departmentCode)->where('is_active', true)->firstOrFail();
 
             // 3. Resolve the active workflow version for this department
-            $workflowVersion = WorkflowVersion::where('workflow_id', $department->workflows()->where('is_active', true)->first()->id)
+            $workflow = $department->workflows()->where('is_active', true)->first();
+            if (! $workflow) {
+                throw new \LogicException("No active workflow found for department {$department->code}");
+            }
+
+            $workflowVersion = WorkflowVersion::where('workflow_id', $workflow->id)
                 ->where('is_active', true)
                 ->firstOrFail();
 

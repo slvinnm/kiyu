@@ -132,15 +132,15 @@ class QueueService
             $result = $this->workflowEngine->completeCurrentStep($ticket);
 
             // 3. Log the workflow progression if applicable
-            if ($result['nextStep'] !== null) {
+            if ($result['next_step'] !== null) {
                 // The next step has been created; if it requires queue, a ticket was created
                 // No additional logging needed here as WorkflowEngine handles it
             }
 
             return [
                 'ticket' => $ticket->fresh(),
-                'nextStep' => $result['nextStep'],
-                'visitCompleted' => $result['visit_completed'],
+                'next_step' => $result['next_step'],
+                'visit_completed' => $result['visit_completed'],
             ];
         });
     }
@@ -303,34 +303,28 @@ class QueueService
                 throw new \LogicException("Cannot transfer to station {$targetStation->code}: no matching workflow step '{$currentStep->name}'.");
             }
 
+            // Capture the actual status BEFORE changing it for the transfer event
+            $fromStatus = $ticket->status;
+
             // 1. Mark original ticket as transferred
             $this->stateMachine->apply($ticket, QueueStatus::TRANSFERRED, $transferredByUserId);
 
             // 2. Create new queue ticket at target station
             // Reuse the same visit_workflow_step (same workflow step execution)
-            $number = (new QueueNumberGenerator())->generate($targetStation);
-            $internalSequence = (new QueueNumberGenerator())->getSequence($targetStation);
+            $allocation = (new QueueNumberGenerator())->allocate($targetStation);
             $newTicket = QueueTicket::create([
                 'visit_id' => $ticket->visit_id,
                 'visit_workflow_step_id' => $ticket->visit_workflow_step_id,
                 'station_id' => $targetStation->id,
-                'queue_number' => $number,
+                'queue_number' => $allocation['queue_number'],
                 'priority' => $ticket->priority->value,
-                'internal_sequence' => $internalSequence,
+                'internal_sequence' => $allocation['internal_sequence'],
                 'status' => QueueStatus::CREATED->value,
                 // notes can be copied if desired
                 'notes' => $ticket->notes,
             ]);
 
-            // 3. Log transfer event on original ticket with actual previous status
-            $ticket->events()->create([
-                'event_type' => \App\Enums\QueueEventType::TRANSFERRED,
-                'from_status' => $ticket->status->value,
-                'to_status' => QueueStatus::TRANSFERRED->value,
-                'user_id' => $transferredByUserId,
-            ]);
-
-            // 4. Log creation event on new ticket
+            // 3. Log creation event on new ticket (original transition event handled by QueueStateMachine::apply)
             $newTicket->events()->create([
                 'event_type' => \App\Enums\QueueEventType::CREATED,
                 'from_status' => null,
