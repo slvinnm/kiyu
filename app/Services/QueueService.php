@@ -117,8 +117,13 @@ class QueueService
     public function completeTicket(int $ticketId, ?int $completedByUserId = null): array
     {
         return DB::transaction(function () use ($ticketId, $completedByUserId) {
-            $ticket = QueueTicket::with(['visitWorkflowStep.visit', 'visitWorkflowStep.workflowStep.station'])
-                ->findOrFail($ticketId);
+            // Lock the QueueTicket row to prevent concurrent completion/progression
+            $ticket = QueueTicket::with([
+                'visitWorkflowStep.visit', 'visitWorkflowStep.workflowStep.station'
+            ])
+                ->whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             // Validate that ticket is IN_PROGRESS
             if (! $this->stateMachine->isEligibleForCompletion($ticket)) {
@@ -302,9 +307,6 @@ class QueueService
             if (! $targetStep) {
                 throw new \LogicException("Cannot transfer to station {$targetStation->code}: no matching workflow step '{$currentStep->name}'.");
             }
-
-            // Capture the actual status BEFORE changing it for the transfer event
-            $fromStatus = $ticket->status;
 
             // 1. Mark original ticket as transferred
             $this->stateMachine->apply($ticket, QueueStatus::TRANSFERRED, $transferredByUserId);

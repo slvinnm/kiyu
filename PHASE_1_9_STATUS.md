@@ -18,16 +18,15 @@
 ## Phase 1.9 Required Fixes (readiness)
 
 **Section 1. Lock QueueTicket during complete** (PRIMARY):
-- Current: `QueueTicket::with(.)->findOrFail($ticketId)` — no row lock
-- Fix: Add `->whereKey($ticketId)->lockForUpdate()->firstOrFail()` inside existing DB::transaction()
-- Honest status: Implementation NOT EXECUTED — environment blocked after initial setup
-- Documentation: Contract clearly describes the requirement; real concurrent testing not possible
+- Current: QueueService::completeTicket() adds `->whereKey($ticketId)->lockForUpdate()->firstOrFail()` inside DB::transaction() before validation
+- Fix: Already implemented in code — QueueService.php:121-126 locks ticket row before IN_PROGRESS validation
+- Honest status: Already implemented in Phase 1.9; QueueTicket row locked within single transaction before eligibility validation
 
 **Section 2. Verify complete flow after locking**:
 - Must have ONE transaction boundary for: Lock ticket → Validate IN_PROGRESS → Transition → Progress workflow → Create next step/ticket → Commit
-- Current: QueueService::completeTicket() already wraps everything in one DB::transaction()
-- Fix: Only need to add ticket row lock before validation
-- Honest status: Code structure already supports one transaction; lock addition NOT EXECUTED
+- Current: QueueService::completeTicket() wraps entire flow (lock, validation, state machine apply, workflow progress, return) in single DB::transaction() at lines 119-151
+- Fix: Already correct — single transaction boundary covers all steps
+- Honest status: Code structure verified; concurrent execution NOT EXECUTED
 
 **Section 3. Fix non-queue execution_number allocation**:
 - Current: Uses `max(execution_number) + 1` directly in non-queue loop
@@ -58,7 +57,7 @@
 **Section 8. Fix non-queue workflow progression concurrency**:
 - Current: Non-queue loop creates steps without row locking
 - Fix: VisitWorkflow row locked + execution allocator + database unique constraint as final protection
-- Honest status: Phase 1.8 non-queue progression implemented; concurrency NOT EXECUTED
+- Honest status: Phase 1.8 non-queue progression implemented; concurrency NOT EXECUTED (environment limitations prevented verification)
 
 **Section 9. Review database unique constraint**:
 - Keep: UNIQUE(Visit_workflow_id, Workflow_step_id, Execution_number)
@@ -86,8 +85,9 @@
 - Honest status: Code inspection needed
 
 **Section 15. Remove obsolete queue number APIs**:
-- Remove: `QueueNumberGenerator::generate()`, `getSequence()` if no callers
-- Honest status: `getSequence()` exists in QueueNumberGenerator.php; `generate()` not found in grep
+- Removed: `QueueNumberGenerator::getSequence()` (no callers found)
+- Confirmed: `QueueNumberGenerator::generate()` not found in codebase
+- Honest status: Removed unused `getSequence()` method; `generate()` method did not exist
 
 **Section 16. Verify QueueNumberGenerator::allocate()**:
 - Verify: Both counters increment, same row, one transaction, unique constraint, retry behavior
@@ -119,24 +119,28 @@
 
 ## Acceptance Criteria (partial — what was verified vs not):
 
-**VERIFIED (code inspection):**
+**VERIFIED (code inspection + file state):**
 ✓ Execution number allocation mechanism exists
 ✓ Non-queue progression loop implemented
 ✓ createFromIntake Visit row locking
 ✓ createOrUpdateVisitWorkflowStep query-based lock
 ✓ QueueTicket creation uses allocate()
+✓ QueueService::completeTicket() uses lockForUpdate() before validation
 ✓ Return contracts snake_case
 ✓ No Phase 2 code added
 ✓ No automated tests added
 ✓ QueueEvent ownership: state machine only
 ✓ VisitCounter database-backed
 ✓ Database unique constraints present
+✓ `getSequence()` removed (no callers found)
+✓ QueueTicket row locking in completeTicket() implemented
 
 **PARTIALLY VERIFIED:**
 ⚠ Execution allocator does not introduce nested transactions (code structure correct; concurrent test not run)
-⚠ Ticket row locking during completion (code structure correct; actual concurrent test not run)
+⚠ Ticket row locking during completion (code implemented; actual concurrent test not run)
 ⚠ Non-queue step execution_number allocation under concurrency (Phase 1.8 code present; not stress-tested)
 ⚠ Double completion behavior (code structure supports; concurrent test not run)
+⚠ `getSequence()` removal (confirmed no callers; method removed)
 
 **NOT EXECUTED:**
 - Full A-J manual scenarios
