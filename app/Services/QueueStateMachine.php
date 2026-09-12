@@ -107,7 +107,7 @@ class QueueStateMachine
      */
     public function isEligibleForNextSelection(QueueTicket $ticket): bool
     {
-        return $ticket->status === QueueStatus::CREATED->value;
+        return $ticket->status === QueueStatus::CREATED;
     }
 
     /**

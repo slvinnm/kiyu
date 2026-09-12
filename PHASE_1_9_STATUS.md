@@ -1,73 +1,55 @@
-# Phase 1.9 Status — Concurrency & Workflow Execution Integrity (Corrective Pass 2)
+# Phase 1.9 Status — Concurrency & Workflow Execution Integrity (Pass 3 — Transaction Boundaries)
 
-## Date: 2026-09-12 (Pass 2)
+## Date: 2026-09-12 (Pass 3)
 
-## Environment Status
+## Changes from Pass 2
 
-**Working directory**: C:\laragon\www\kiyu
+Pass 2 restored WorkflowEngine (visit lock, allocator, non-queue progression). Pass 3 fixes remaining transaction-boundary and concurrency issues.
 
-**Phase 1.8**: WorkflowEngine.php was restored after file corruption. Previous pass fixed QueueService and QueueNumberGenerator.
+## Actual Source Changes (verified)
 
-**Pass 2 fixes applied to WorkflowEngine.php** (actual code verified via syntax check + file inspection):
-1. ✓ `createFromIntake()` locks Visit with `Visit::whereKey()->lockForUpdate()->firstOrFail()`
-2. ✓ `completeCurrentStep()` progresses ALL consecutive non-queue steps (while loop with auto-completion)
-3. ✓ `allocateExecutionNumber()` uses query-based `VisitWorkflow::whereKey()->lockForUpdate()` — no inner DB::transaction()
-4. ✓ `createFromIntake()` uses `allocateExecutionNumber()` (no hardcoded `1`)
-5. ✓ `completeCurrentStep()` uses `allocateExecutionNumber()` for every new step
-6. ✓ `createOrUpdateVisitWorkflowStep()` uses query-based lock + allocator
-7. ✓ No Phase 2 API/controller/frontend/tests added
-8. ✓ QueueService::completeTicket() row lock preserved
-9. ✓ QueueNumberGenerator::getSequence() remains removed
+1. QueueSelector::callNext() — removed DB::transaction() wrapper; selection only performs row lock.
+2. QueueService::callNext() — retains DB::transaction(); owns select + CREATED→CALLED transition (single transaction boundary).
+3. WorkflowEngine::completeCurrentStep() — removed DB::transaction() wrapper; participates in QueueService::completeTicket() transaction.
+4. WorkflowEngine::createOrUpdateVisitWorkflowStep() — uses only allocator (no double manual lock); documents: must be called inside active transaction.
+5. WorkflowEngine::allocateExecutionNumber() — no inner DB::transaction(); relies on caller transaction.
+6. QueueStateMachine::isEligibleForNextSelection() — fixed enum comparison (`=== QueueStatus::CREATED` not `.value`).
+7. QueueNumberGenerator::allocate() — retains DB::transaction() (all callers: createFromIntake, completeCurrentStep, QueueService::transferTicket are all inside transactions; own transaction is safe and preserves retry/atomicity).
+8. QueueNumberGenerator.php — fixed syntax error (extra closing brace removed); `getSequence()` remains removed.
+
+## Transaction Ownership After Fix
+
+QueueService::callNext() → owns select + transition
+QueueSelector::callNext() → selection + lock only (no transaction)
+QueueService::completeTicket() → owns lock + complete + workflow progress
+WorkflowEngine::completeCurrentStep() → participates in caller transaction
+WorkflowEngine::allocateExecutionNumber() → participates in caller transaction (no inner transaction)
+createOrUpdateVisitWorkflowStep() → participates in caller transaction (contract: must be called inside active DB transaction)
+QueueNumberGenerator::allocate() → owns its own transaction (atomic counter increment + retry; callers are all transactional)
 
 ## Verification Performed
 
-- PHP syntax check passed (`php -l`) on WorkflowEngine.php
-- File inspection confirmed all three `VisitWorkflowStep::create()` paths call allocator
-- `grep` confirmed zero `getSequence()` references in `app/`
-- `grep` confirmed all `execution_number` runtime assignments use allocator
-- No new automated tests added (per instruction)
+- `php -l` passed on: QueueSelector.php, QueueService.php, WorkflowEngine.php, QueueStateMachine.php, QueueNumberGenerator.php
+- `grep` confirmed QueueSelector has no DB::transaction()
+- `grep` confirmed completeCurrentStep() has no inner DB::transaction()
+- `grep` confirmed QueueStateMachine uses enum comparison (`=== QueueStatus::CREATED`)
+- `grep` confirmed QueueNumberGenerator.php syntax valid (passes `php -l`)
+- `grep` confirmed getSequence() removed; no app-level references
+- Code inspection: all VisitWorkflowStep::create() paths use allocator; all execution_number runtime assignments central
 
-## What was NOT executed
+## Not Executed (honest)
 
-- Concurrent execution scenarios A-J (environment classifier limits)
-- Full `migrate:fresh --seed` verification
-- Parallel stress testing
-- Manual concurrent initialization/completion testing
+- Concurrent callNext() (scenario A): NOT EXECUTED
+- Concurrent completeTicket() (scenario B): NOT EXECUTED
+- Concurrent initialization (scenario C): NOT EXECUTED
+- Concurrent execution-number allocation (scenario D): NOT EXECUTED
+- Concurrent queue-number allocation (scenario E): NOT EXECUTED
+- Full migrate:fresh --seed: NOT EXECUTED
+- Database constraint violation stress testing: NOT EXECUTED
+- Full A-J manual scenarios: NOT EXECUTED
 
-These remain honestly reported as NOT EXECUTED; no claims of passing are made.
-
-## Acceptance Criteria (actual source state)
-
-**VERIFIED BY CODE INSPECTION:**
-✓ `createFromIntake()` locks Visit (line 34)
-✓ `createFromIntake()` uses allocator (line 54) — no hardcoded `1`
-✓ `completeCurrentStep()` auto-progresses non-queue steps (while loop, lines 86-151)
-✓ `completeCurrentStep()` stops at queue-required step (line 118) and creates ticket
-✓ `completeCurrentStep()` completes Visit when no steps remain (line 96)
-✓ `allocateExecutionNumber()` query-locks VisitWorkflow (line 171), no inner DB::transaction()
-✓ `allocateExecutionNumber()` calculates MAX + 1 (line 185)
-✓ `createOrUpdateVisitWorkflowStep()` uses query-lock + allocator (lines 192, 264)
-✓ All `VisitWorkflowStep::create()` paths go through allocator (3 call sites, lines 58, 132, 197)
-✓ QueueTicket row lock preserved in QueueService::completeTicket()
-✓ `getSequence()` removed from QueueNumberGenerator; no app references
-✓ QueueNumberGenerator::allocate() remains canonical
-✓ Workflow version pinned to `$visit->workflowVersion`
-✓ QueueEvent ownership preserved (state machine only)
-✓ Optional steps deferred; `completion_requirements` deferred
-✓ No Phase 2 code added
-
-**PARTIALLY VERIFIED:**
-⚠ Concurrent execution under load (code structure correct; not stress-tested)
-⚠ Double-completion defense (code uses queue service lock + state machine; concurrent test not run)
-
-**NOT EXECUTED:**
-- Full A-J manual scenarios
-- Concurrent initialization testing
-- Concurrent completion testing
-- Full migrate:fresh --seed
-- Parallel queue allocation stress test
-- Real database constraint violation testing
+These remain NOT EXECUTED; no claims of passing concurrent tests are made.
 
 ## Stop
 
-Do NOT proceed to Phase 2 automatically. Phase 1.9 corrective pass 2 is complete in source code only; runtime verification was not performed.
+Do NOT proceed to Phase 2. Phase 1.9 corrective pass 3 completes the transaction-boundary and concurrency fixes in code structure only.

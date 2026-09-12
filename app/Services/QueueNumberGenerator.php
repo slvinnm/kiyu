@@ -80,5 +80,4 @@ class QueueNumberGenerator
             return ['queue_number' => $queueNumber, 'internal_sequence' => $internalSequence];
         });
     }
-
-    }
+}

@@ -11,22 +11,16 @@ class QueueSelector
 {
     public function callNext(Station $station): ?QueueTicket
     {
-        return DB::transaction(function () use ($station) {
-            // ONLY select genuinely waiting CREATED tickets
-            $ticket = QueueTicket::where('station_id', $station->id)
-                ->where('status', QueueStatus::CREATED->value)
-                ->orderByDesc('priority')
-                ->orderBy('internal_sequence', 'asc')
-                ->lockForUpdate()
-                ->first();
+        // Selection ONLY — no state mutation. QueueService owns the transaction
+        // and performs the CREATED → CALLED transition while the lock is held.
+        $ticket = QueueTicket::where('station_id', $station->id)
+            ->where('status', QueueStatus::CREATED->value)
+            ->orderByDesc('priority')
+            ->orderBy('internal_sequence', 'asc')
+            ->lockForUpdate()
+            ->first();
 
-            if (! $ticket) {
-                return null;
-            }
-
-            // Selection ONLY — no state mutation. QueueService performs transition.
-            return $ticket;
-        });
+        return $ticket;
     }
 
     public function selectForStation(Station $station, ?int $limit = 20): \Illuminate\Database\Eloquent\Collection
