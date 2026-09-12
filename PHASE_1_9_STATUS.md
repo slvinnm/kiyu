@@ -1,166 +1,73 @@
-# Phase 1.9 Status — Concurrency & Workflow Execution Integrity
+# Phase 1.9 Status — Concurrency & Workflow Execution Integrity (Corrective Pass 2)
 
-## Date: 2026-09-12
+## Date: 2026-09-12 (Pass 2)
 
 ## Environment Status
 
 **Working directory**: C:\laragon\www\kiyu
 
-**Phase 1.8**: WorkflowEngine.php restored from git HEAD. Working file at 211 lines with these verified changes:
-1. ✓ `completeCurrentStep()` processes consecutive non-queue steps automatically
-2. ✓ `allocateExecutionNumber()` uses query-based `VisitWorkflow::whereKey()->lockForUpdate()`
-3. ✓ `createFromIntake()` locks Visit row with `Visit::whereKey()->lockForUpdate()`
-4. ✓ `createOrUpdateVisitWorkflowStep()` uses query-based lock on parent VisitWorkflow
-5. ✓ No Phase 2 API/frontend/tests added
+**Phase 1.8**: WorkflowEngine.php was restored after file corruption. Previous pass fixed QueueService and QueueNumberGenerator.
 
-**Verification**: Code inspection confirmed. Manual concurrent execution NOT EXECUTED (environment classifier limits).
+**Pass 2 fixes applied to WorkflowEngine.php** (actual code verified via syntax check + file inspection):
+1. ✓ `createFromIntake()` locks Visit with `Visit::whereKey()->lockForUpdate()->firstOrFail()`
+2. ✓ `completeCurrentStep()` progresses ALL consecutive non-queue steps (while loop with auto-completion)
+3. ✓ `allocateExecutionNumber()` uses query-based `VisitWorkflow::whereKey()->lockForUpdate()` — no inner DB::transaction()
+4. ✓ `createFromIntake()` uses `allocateExecutionNumber()` (no hardcoded `1`)
+5. ✓ `completeCurrentStep()` uses `allocateExecutionNumber()` for every new step
+6. ✓ `createOrUpdateVisitWorkflowStep()` uses query-based lock + allocator
+7. ✓ No Phase 2 API/controller/frontend/tests added
+8. ✓ QueueService::completeTicket() row lock preserved
+9. ✓ QueueNumberGenerator::getSequence() remains removed
 
-## Phase 1.9 Required Fixes (readiness)
+## Verification Performed
 
-**Section 1. Lock QueueTicket during complete** (PRIMARY):
-- Current: QueueService::completeTicket() adds `->whereKey($ticketId)->lockForUpdate()->firstOrFail()` inside DB::transaction() before validation
-- Fix: Already implemented in code — QueueService.php:121-126 locks ticket row before IN_PROGRESS validation
-- Honest status: Already implemented in Phase 1.9; QueueTicket row locked within single transaction before eligibility validation
+- PHP syntax check passed (`php -l`) on WorkflowEngine.php
+- File inspection confirmed all three `VisitWorkflowStep::create()` paths call allocator
+- `grep` confirmed zero `getSequence()` references in `app/`
+- `grep` confirmed all `execution_number` runtime assignments use allocator
+- No new automated tests added (per instruction)
 
-**Section 2. Verify complete flow after locking**:
-- Must have ONE transaction boundary for: Lock ticket → Validate IN_PROGRESS → Transition → Progress workflow → Create next step/ticket → Commit
-- Current: QueueService::completeTicket() wraps entire flow (lock, validation, state machine apply, workflow progress, return) in single DB::transaction() at lines 119-151
-- Fix: Already correct — single transaction boundary covers all steps
-- Honest status: Code structure verified; concurrent execution NOT EXECUTED
+## What was NOT executed
 
-**Section 3. Fix non-queue execution_number allocation**:
-- Current: Uses `max(execution_number) + 1` directly in non-queue loop
-- Fix: Ensure every runtime VisitWorkflowStep creation uses `allocateExecutionNumber()` helper
-- Honest status: Partial — non-queue loop was added in Phase 1.8, execution_number use inside that loop needs verification
+- Concurrent execution scenarios A-J (environment classifier limits)
+- Full `migrate:fresh --seed` verification
+- Parallel stress testing
+- Manual concurrent initialization/completion testing
 
-**Section 4. Use one execution-number allocator**:
-- Must have one clear mechanism: `AllocateExecutionNumber(VisitWorkflow $workflow, WorkflowStep $step): int`
-- Current: Phase 1.8 already added `allocateExecutionNumber()` method
-- Honest status: Implemented in code but NOT EXECUTED with concurrent workloads
+These remain honestly reported as NOT EXECUTED; no claims of passing are made.
 
-**Section 5. Fix allocateExecutionNumber() transaction boundary**:
-- Current: Opens `DB::transaction()` inside already-transactional `completeCurrentStep()`
-- Fix: Refactor to only perform row lock + query + calculate value; let outer transaction own commit/rollback
-- Honest status: Requires environment execution to verify nesting removal
+## Acceptance Criteria (actual source state)
 
-**Section 6. Fix createOrUpdateVisitWorkflowStep()**:
-- Current: Calls `lockForUpdate()` — responsibility unclear (inside/outside transaction)
-- Fix: Make fully transactional OR private helper assuming caller owns transaction; document contract
-- Honest status: Already fixed in Phase 1.8 to use query-based lock — ready
-
-**Section 7. Centralize VisitWorkflowStep creation**:
-- Must use: Determine step → Allocate execution_number → Create VisitWorkflowStep
-- Current: `completeCurrentStep()` has a non-queue loop that creates steps directly
-- Fix: Ensure every step creation path goes through the centralized mechanism
-- Honest status: Code structure is present but concurrent execution not verified
-
-**Section 8. Fix non-queue workflow progression concurrency**:
-- Current: Non-queue loop creates steps without row locking
-- Fix: VisitWorkflow row locked + execution allocator + database unique constraint as final protection
-- Honest status: Phase 1.8 non-queue progression implemented; concurrency NOT EXECUTED (environment limitations prevented verification)
-
-**Section 9. Review database unique constraint**:
-- Keep: UNIQUE(Visit_workflow_id, Workflow_step_id, Execution_number)
-- Honest status: Already present in migration — verified by code inspection
-
-**Section 10. Initial createFromIntake() flow**:
-- Current: Locks Visit row, checks existing execution 1, creates if absent
-- Honest status: Phase 1.8 already added Visit row lock — verified
-
-**Section 11. Review VisitWorkflow unique invariant**:
-- Database already has unique invariant (verified in Phase 1.6/1.7)
-- Honest status: No changes needed
-
-**Section 12. Reject double completion**:
-- Current: QueueStateMachine enforces state-based eligibility
-- Fix: After ticket row lock, second request will see ticket not IN_PROGRESS and must fail
-- Honest status: Code structure supports this; actual concurrent test NOT EXECUTED
-
-**Section 13. Queue event invariant**:
-- Preserve: One state transition = One QueueEvent
-- Honest status: Already verified in Phase 1.7 (only QueueStateMachine::apply creates events)
-
-**Section 14. Clean up transferTicket()**:
-- Remove dead code: `$fromStatus = $ticket->status;` if unused
-- Honest status: Code inspection needed
-
-**Section 15. Remove obsolete queue number APIs**:
-- Removed: `QueueNumberGenerator::getSequence()` (no callers found)
-- Confirmed: `QueueNumberGenerator::generate()` not found in codebase
-- Honest status: Removed unused `getSequence()` method; `generate()` method did not exist
-
-**Section 16. Verify QueueNumberGenerator::allocate()**:
-- Verify: Both counters increment, same row, one transaction, unique constraint, retry behavior
-- Honest status: Code inspection completed; concurrent execution NOT EXECUTED
-
-**Section 17. Review VisitCounter**:
-- Keep database-backed with UNIQUE(counter_date)
-- Honest status: Already verified in earlier phases
-
-**Section 18. Optional step semantics**:
-- Keep: evaluation DEFERRED; do not claim implemented
-- Honest status: Already documented as deferred
-
-**Section 19. completion_requirements**:
-- Keep: deferred; do not add JSON interpreter
-- Honest status: Already deferred
-
-**Section 20. Recheck workflow version pinning**:
-- Honor: Existing Visit.workflowVersion must be used
-- Honest status: Already preserved — no changes needed
-
-**Section 21. Transaction responsibility**:
-- Preferred: Each service owns its transaction boundary
-- Honest status: Already structured correctly
-
-**Section 22. Manual verification** (NOT EXECUTED):
-- Scenarios A-J: Honestly reported as NOT EXECUTED due to environment limits
-- Full concurrent testing not possible in this session
-
-## Acceptance Criteria (partial — what was verified vs not):
-
-**VERIFIED (code inspection + file state):**
-✓ Execution number allocation mechanism exists
-✓ Non-queue progression loop implemented
-✓ createFromIntake Visit row locking
-✓ createOrUpdateVisitWorkflowStep query-based lock
-✓ QueueTicket creation uses allocate()
-✓ QueueService::completeTicket() uses lockForUpdate() before validation
-✓ Return contracts snake_case
+**VERIFIED BY CODE INSPECTION:**
+✓ `createFromIntake()` locks Visit (line 34)
+✓ `createFromIntake()` uses allocator (line 54) — no hardcoded `1`
+✓ `completeCurrentStep()` auto-progresses non-queue steps (while loop, lines 86-151)
+✓ `completeCurrentStep()` stops at queue-required step (line 118) and creates ticket
+✓ `completeCurrentStep()` completes Visit when no steps remain (line 96)
+✓ `allocateExecutionNumber()` query-locks VisitWorkflow (line 171), no inner DB::transaction()
+✓ `allocateExecutionNumber()` calculates MAX + 1 (line 185)
+✓ `createOrUpdateVisitWorkflowStep()` uses query-lock + allocator (lines 192, 264)
+✓ All `VisitWorkflowStep::create()` paths go through allocator (3 call sites, lines 58, 132, 197)
+✓ QueueTicket row lock preserved in QueueService::completeTicket()
+✓ `getSequence()` removed from QueueNumberGenerator; no app references
+✓ QueueNumberGenerator::allocate() remains canonical
+✓ Workflow version pinned to `$visit->workflowVersion`
+✓ QueueEvent ownership preserved (state machine only)
+✓ Optional steps deferred; `completion_requirements` deferred
 ✓ No Phase 2 code added
-✓ No automated tests added
-✓ QueueEvent ownership: state machine only
-✓ VisitCounter database-backed
-✓ Database unique constraints present
-✓ `getSequence()` removed (no callers found)
-✓ QueueTicket row locking in completeTicket() implemented
 
 **PARTIALLY VERIFIED:**
-⚠ Execution allocator does not introduce nested transactions (code structure correct; concurrent test not run)
-⚠ Ticket row locking during completion (code implemented; actual concurrent test not run)
-⚠ Non-queue step execution_number allocation under concurrency (Phase 1.8 code present; not stress-tested)
-⚠ Double completion behavior (code structure supports; concurrent test not run)
-⚠ `getSequence()` removal (confirmed no callers; method removed)
+⚠ Concurrent execution under load (code structure correct; not stress-tested)
+⚠ Double-completion defense (code uses queue service lock + state machine; concurrent test not run)
 
 **NOT EXECUTED:**
 - Full A-J manual scenarios
-- Concurrent completion testing
 - Concurrent initialization testing
-- Full migrate:fresh --seed verification
+- Concurrent completion testing
+- Full migrate:fresh --seed
 - Parallel queue allocation stress test
 - Real database constraint violation testing
 
-## Summary
-
-Phase 1.9 fixes the **code structure** for concurrency and workflow execution integrity:
-- Ticket row locking added to completion flow
-- Execution number allocation centralized and used consistently
-- Transaction boundaries clarified
-
-But **runtime verification is NOT EXECUTED** due to environment limitations (bash classifier blocking execution after initial seed, file write corruption on multi-line edits).
-
-Per explicit instructions: "Do not mark concurrency as VERIFIED unless it was executed."
-
 ## Stop
 
-Do NOT proceed to Phase 2 automatically. Phase 1.9 is complete only in code structure; runtime verification was not performed.
+Do NOT proceed to Phase 2 automatically. Phase 1.9 corrective pass 2 is complete in source code only; runtime verification was not performed.
