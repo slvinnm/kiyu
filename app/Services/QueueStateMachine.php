@@ -47,12 +47,14 @@ class QueueStateMachine
     public function canTransition(QueueTicket $ticket, QueueStatus $to): bool
     {
         $from = $ticket->status;
+
         if ($from->value === $to->value) {
             return false;
         }
+
         $allowed = $this->validTransitions[$from->value] ?? [];
 
-        return in_array($to->value, $allowed);
+        return in_array($to->value, $allowed, true);
     }
 
     public function apply(QueueTicket $ticket, QueueStatus $to, ?int $byUserId = null): bool
@@ -71,7 +73,6 @@ class QueueStateMachine
             'completed_at' => $to === QueueStatus::COMPLETED ? now() : $ticket->completed_at,
         ]);
 
-        // Log event
         QueueEvent::create([
             'queue_ticket_id' => $ticket->id,
             'event_type' => match ($to) {
@@ -95,49 +96,37 @@ class QueueStateMachine
         return true;
     }
 
-    /**
-     * Eligibility for callNext():
-     * Only CREATED tickets are eligible.
-     * ON_HOLD must never be selected by callNext().
-     * CALLED tickets must not be re-selected.
-     */
     public function isEligibleForCall(QueueTicket $ticket): bool
     {
         return $ticket->status === QueueStatus::CREATED;
     }
 
-    /**
-     * Eligibility for callNext selection:
-     * Only CREATED status is eligible.
-     * This is the invariant for callNext().
-     */
     public function isEligibleForNextSelection(QueueTicket $ticket): bool
     {
         return $ticket->status === QueueStatus::CREATED;
     }
 
-    /**
-     * Eligibility for resume:
-     * Only ON_HOLD → CALLED is valid.
-     */
     public function isEligibleForResume(QueueTicket $ticket): bool
     {
         return $ticket->status === QueueStatus::ON_HOLD;
     }
 
-    /**
-     * Eligibility for start (CALLED → IN_PROGRESS).
-     */
     public function isEligibleToStart(QueueTicket $ticket): bool
     {
         return $ticket->status === QueueStatus::CALLED;
     }
 
-    /**
-     * Eligibility for completion (IN_PROGRESS → COMPLETED).
-     */
     public function isEligibleForCompletion(QueueTicket $ticket): bool
     {
         return $ticket->status === QueueStatus::IN_PROGRESS;
+    }
+
+    public function isEligibleForSkip(QueueTicket $ticket): bool
+    {
+        return in_array($ticket->status, [
+            QueueStatus::CREATED,
+            QueueStatus::CALLED,
+            QueueStatus::IN_PROGRESS,
+        ], true);
     }
 }

@@ -9,23 +9,11 @@ use App\Enums\VisitStatus;
 use App\Enums\VisitWorkflowStepStatus;
 use App\Models\QueueTicket;
 use App\Models\Station;
-use App\Models\VisitWorkflowStep;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class QueueService
 {
-    /**
-     * QueueService orchestrates queue operations.
-     *
-     * It uses:
-     * - QueueStateMachine: for valid state transitions
-     * - QueueSelector: for selecting the next ticket to call
-     * - QueueNumberGenerator: for generating queue numbers (via WorkflowEngine)
-     * - WorkflowEngine: for progressing workflow after completion
-     *
-     * All operations are transactional and concurrency-safe.
-     */
     protected QueueStateMachine $stateMachine;
 
     protected QueueSelector $selector;
@@ -42,44 +30,22 @@ class QueueService
         $this->workflowEngine = $workflowEngine ?? new WorkflowEngine;
     }
 
-    /**
-     * Call the next ticket for a station.
-     *
-     * Required invariant:
-     *   Only CREATED tickets are selectable by callNext().
-     *
-     * @param  int|null  $calledByUserId  Optional user ID who called the ticket
-     * @return QueueTicket|null The called ticket, or null if no tickets waiting
-     */
     public function callNext(int $stationId, ?int $calledByUserId = null): ?QueueTicket
     {
         return DB::transaction(function () use ($stationId, $calledByUserId) {
             $station = Station::findOrFail($stationId);
-
-            // 1. Select next CREATED ticket (priority DESC, internal_sequence ASC)
             $ticket = $this->selector->callNext($station);
 
             if (! $ticket) {
                 return null;
             }
 
-            // 2. Transition CREATED → CALLED via state machine
             $this->stateMachine->apply($ticket, QueueStatus::CALLED, $calledByUserId);
 
-            // 3. Return fresh ticket with updated status
             return $ticket->fresh();
         });
     }
 
-    /**
-     * Start working on a called ticket.
-     *
-     * Required transition:
-     *   CALLED → IN_PROGRESS
-     *
-     * @param  int|null  $startedByUserId  Optional user ID who started the ticket
-     * @return bool True if started, false if invalid transition
-     */
     public function startTicket(int $ticketId, ?int $startedByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $startedByUserId) {
@@ -87,13 +53,15 @@ class QueueService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Validate transition
             if (! $this->stateMachine->isEligibleToStart($ticket)) {
                 return false;
             }
 
-            // Apply transition
-            $started = $this->stateMachine->apply($ticket, QueueStatus::IN_PROGRESS, $startedByUserId);
+            $started = $this->stateMachine->apply(
+                $ticket,
+                QueueStatus::IN_PROGRESS,
+                $startedByUserId,
+            );
 
             if (! $started) {
                 return false;
@@ -103,80 +71,55 @@ class QueueService
                 'status' => VisitWorkflowStepStatus::IN_PROGRESS->value,
                 'started_at' => now(),
             ]);
-            $ticket->visit()->update(['status' => VisitStatus::IN_PROGRESS->value]);
+
+            $ticket->visit()->update([
+                'status' => VisitStatus::IN_PROGRESS->value,
+            ]);
 
             return true;
         });
     }
 
-    /**
-     * Complete a ticket and progress the workflow.
-     *
-     * Flow:
-     *   QueueTicket.completed
-     *   ↓
-     *   VisitWorkflowStep.completed
-     *   ↓
-     *   WorkflowEngine.determineNextStep()
-     *   ↓
-     *   Create next VisitWorkflowStep
-     *   ↓
-     *   If requires_queue: create QueueTicket
-     *   Else: continue to next non-queue step
-     *   ↓
-     *   If no steps remain: Visit = COMPLETED
-     *
-     * @param  int|null  $completedByUserId  Optional user ID who completed the ticket
-     * @return array ['ticket' => QueueTicket, 'nextStep' => WorkflowStep|null, 'visitCompleted' => bool]
-     */
-    public function completeTicket(int $ticketId, ?int $completedByUserId = null): array
-    {
-        return DB::transaction(function () use ($ticketId, $completedByUserId) {
-            // Lock the QueueTicket row to prevent concurrent completion/progression
+    public function completeTicket(
+        int $ticketId,
+        ?int $completedByUserId = null,
+        array $completionContext = [],
+    ): array {
+        return DB::transaction(function () use ($ticketId, $completedByUserId, $completionContext) {
             $ticket = QueueTicket::with([
-                'visitWorkflowStep.visitWorkflow.visit', 'visitWorkflowStep.workflowStep.station',
+                'visitWorkflowStep.visitWorkflow.visit',
+                'visitWorkflowStep.workflowStep.station',
             ])
                 ->whereKey($ticketId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Validate that ticket is IN_PROGRESS
             if (! $this->stateMachine->isEligibleForCompletion($ticket)) {
                 throw ValidationException::withMessages([
                     'ticket' => 'Ticket must be IN_PROGRESS to complete.',
                 ]);
             }
 
-            // 1. Mark ticket as completed
-            $this->stateMachine->apply($ticket, QueueStatus::COMPLETED, $completedByUserId);
+            $this->stateMachine->apply(
+                $ticket,
+                QueueStatus::COMPLETED,
+                $completedByUserId,
+            );
 
-            // 2. Progress the workflow via WorkflowEngine
-            $result = $this->workflowEngine->completeCurrentStep($ticket);
-
-            // 3. Log the workflow progression if applicable
-            if ($result['next_step'] !== null) {
-                // The next step has been created; if it requires queue, a ticket was created
-                // No additional logging needed here as WorkflowEngine handles it
-            }
+            $result = $this->workflowEngine->completeCurrentStep(
+                $ticket,
+                $completionContext,
+            );
 
             return [
                 'ticket' => $ticket->fresh(),
                 'next_step' => $result['next_step'],
                 'visit_completed' => $result['visit_completed'],
+                'repeated' => $result['repeated'] ?? false,
             ];
         });
     }
 
-    /**
-     * Hold a ticket (pause processing).
-     *
-     * Valid transitions:
-     *   CALLED → ON_HOLD
-     *   IN_PROGRESS → ON_HOLD
-     *
-     * @param  int|null  $heldByUserId  Optional user ID who placed on hold
-     * @return bool True if held, false if invalid
-     */
     public function holdTicket(int $ticketId, ?int $heldByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $heldByUserId) {
@@ -187,7 +130,7 @@ class QueueService
             if (! in_array($ticket->status->value, [
                 QueueStatus::CALLED->value,
                 QueueStatus::IN_PROGRESS->value,
-            ])) {
+            ], true)) {
                 return false;
             }
 
@@ -195,15 +138,6 @@ class QueueService
         });
     }
 
-    /**
-     * Resume a held ticket.
-     *
-     * Required transition:
-     *   ON_HOLD → CALLED
-     *
-     * @param  int|null  $resumedByUserId  Optional user ID who resumed the ticket
-     * @return bool True if resumed, false if invalid
-     */
     public function resumeTicket(int $ticketId, ?int $resumedByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $resumedByUserId) {
@@ -211,73 +145,81 @@ class QueueService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Validate eligibility for resume
             if (! $this->stateMachine->isEligibleForResume($ticket)) {
                 return false;
             }
 
-            // Apply transition ON_HOLD → CALLED
             return $this->stateMachine->apply($ticket, QueueStatus::CALLED, $resumedByUserId);
         });
     }
 
-    /**
-     * Skip a ticket (optionally, based on workflow rules).
-     *
-     * Valid transitions:
-     *   CREATED → SKIPPED
-     *   CALLED → SKIPPED
-     *   IN_PROGRESS → SKIPPED
-     *   ON_HOLD → SKIPPED
-     *
-     * @param  int|null  $skippedByUserId  Optional user ID who skipped the ticket
-     * @param  string|null  $reason  Optional reason for skipping
-     * @return bool True if skipped, false if invalid
-     */
-    public function skipTicket(int $ticketId, ?int $skippedByUserId = null, ?string $reason = null): bool
-    {
-        return DB::transaction(function () use ($ticketId, $skippedByUserId, $reason) {
+    public function skipTicket(
+        int $ticketId,
+        ?int $skippedByUserId = null,
+        ?string $reason = null,
+        array $context = [],
+    ): array {
+        return DB::transaction(function () use ($ticketId, $skippedByUserId, $reason, $context) {
             $ticket = QueueTicket::whereKey($ticketId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Check if skip is allowed by workflow step
-            $workflowStep = $ticket->visitWorkflowStep->workflowStep;
-            if (! $workflowStep->can_skip) {
-                return false;
+            if (! $this->stateMachine->isEligibleForSkip($ticket)) {
+                return [
+                    'skipped' => false,
+                    'next_step' => null,
+                    'visit_completed' => false,
+                ];
             }
 
-            // Apply transition
-            $result = $this->stateMachine->apply($ticket, QueueStatus::SKIPPED, $skippedByUserId);
-
-            if ($result && $reason) {
-                // Add skip reason to notes
-                $ticket->update([
-                    'notes' => $reason.(($ticket->notes) ? " | {$ticket->notes}" : ''),
+            $workflowStep = $ticket->visitWorkflowStep()->with('workflowStep')->firstOrFail()->workflowStep;
+            if (! $workflowStep->can_skip) {
+                throw ValidationException::withMessages([
+                    'ticket' => "Workflow step '{$workflowStep->name}' cannot be skipped.",
                 ]);
             }
 
-            return $result;
+            $result = $this->stateMachine->apply(
+                $ticket,
+                QueueStatus::SKIPPED,
+                $skippedByUserId,
+            );
+
+            if (! $result) {
+                return [
+                    'skipped' => false,
+                    'next_step' => null,
+                    'visit_completed' => false,
+                ];
+            }
+
+            $workflowResult = $this->workflowEngine->skipCurrentStep(
+                $ticket,
+                $reason,
+                $context,
+            );
+
+            return [
+                'skipped' => true,
+                'next_step' => $workflowResult['next_step'],
+                'visit_completed' => $workflowResult['visit_completed'],
+                'ticket' => $ticket->fresh(),
+            ];
         });
     }
 
     public function markNoShow(int $ticketId, ?int $markedByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $markedByUserId) {
-            $ticket = QueueTicket::query()->whereKey($ticketId)->lockForUpdate()->firstOrFail();
+            $ticket = QueueTicket::query()
+                ->whereKey($ticketId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             return $this->stateMachine->apply($ticket, QueueStatus::NO_SHOW, $markedByUserId);
         });
     }
 
-    /**
-     * Cancel a ticket.
-     *
-     * Valid transitions from any active state to CANCELLED.
-     *
-     * @param  int|null  $cancelledByUserId  Optional user ID who cancelled the ticket
-     * @return bool True if cancelled, false if invalid
-     */
     public function cancelTicket(int $ticketId, ?int $cancelledByUserId = null): bool
     {
         return DB::transaction(function () use ($ticketId, $cancelledByUserId) {
@@ -285,13 +227,12 @@ class QueueService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Cannot cancel completed/skipped/etc. tickets
             if (! in_array($ticket->status->value, [
                 QueueStatus::CREATED->value,
                 QueueStatus::CALLED->value,
                 QueueStatus::IN_PROGRESS->value,
                 QueueStatus::ON_HOLD->value,
-            ])) {
+            ], true)) {
                 return false;
             }
 
@@ -299,25 +240,6 @@ class QueueService
         });
     }
 
-    /**
-     * Transfer a ticket to another valid service destination.
-     *
-     * Transfer is NOT workflow progression.
-     * It means:
-     *   Current queue/ticket
-     *   ↓
-     *   Transfer to another valid service destination (same workflow step)
-     *   ↓
-     *   Create new queue position
-     *   ↓
-     *   Patient joins destination queue
-     *
-     * @param  int  $targetStationId  ID of the station to transfer to
-     * @param  int|null  $transferredByUserId  Optional user ID who initiated transfer
-     * @return array ['original' => QueueTicket, 'new' => QueueTicket]
-     *
-     * @throws \LogicException If transfer is invalid
-     */
     public function transferTicket(int $ticketId, int $targetStationId, ?int $transferredByUserId = null): array
     {
         return DB::transaction(function () use ($ticketId, $targetStationId, $transferredByUserId) {
@@ -328,7 +250,11 @@ class QueueService
 
             $targetStation = Station::findOrFail($targetStationId);
 
-            if (! in_array($ticket->status, [QueueStatus::CREATED, QueueStatus::CALLED, QueueStatus::IN_PROGRESS], true)) {
+            if (! in_array($ticket->status, [
+                QueueStatus::CREATED,
+                QueueStatus::CALLED,
+                QueueStatus::IN_PROGRESS,
+            ], true)) {
                 throw new \LogicException('Only active queue tickets can be transferred.');
             }
 
@@ -336,23 +262,25 @@ class QueueService
                 throw new \LogicException('Transfer requires a different active station.');
             }
 
-            // A workflow step has one configured station in the current schema.
-            // A same-department, same-type station is therefore the valid proxy for
-            // moving its execution to another physical workstation.
             $currentStep = $ticket->visitWorkflowStep->workflowStep;
             $sourceStation = $currentStep->station;
+
+            if (! $sourceStation) {
+                throw new \LogicException('Current workflow step has no source station.');
+            }
+
             if ($targetStation->department_id !== $sourceStation->department_id || $targetStation->type !== $sourceStation->type) {
                 throw new \LogicException('Transfer target must be an active station of the same department and station type.');
             }
 
-            // 1. Mark original ticket as transferred
             if (! $this->stateMachine->apply($ticket, QueueStatus::TRANSFERRED, $transferredByUserId)) {
                 throw new \LogicException('Ticket cannot transition to TRANSFERRED.');
             }
-            $ticket->update(['transferred_to_station_id' => $targetStation->id]);
 
-            // 2. Create new queue ticket at target station
-            // Reuse the same visit_workflow_step (same workflow step execution)
+            $ticket->update([
+                'transferred_to_station_id' => $targetStation->id,
+            ]);
+
             $allocation = (new QueueNumberGenerator)->allocate($targetStation);
             $newTicket = QueueTicket::create([
                 'visit_id' => $ticket->visit_id,
@@ -363,11 +291,9 @@ class QueueService
                 'internal_sequence' => $allocation['internal_sequence'],
                 'status' => QueueStatus::CREATED->value,
                 'transferred_from_ticket_id' => $ticket->id,
-                // notes can be copied if desired
                 'notes' => $ticket->notes,
             ]);
 
-            // 3. Log creation event on new ticket (original transition event handled by QueueStateMachine::apply)
             $newTicket->events()->create([
                 'event_type' => QueueEventType::CREATED,
                 'from_status' => null,
