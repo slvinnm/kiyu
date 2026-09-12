@@ -13,8 +13,7 @@ class KioskController extends Controller
 {
     public function __construct(
         private QueueAcquisitionService $queueAcquisitionService,
-    ) {
-    }
+    ) {}
 
     public function departments(): JsonResponse
     {

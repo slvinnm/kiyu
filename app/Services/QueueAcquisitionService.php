@@ -20,8 +20,7 @@ class QueueAcquisitionService
 {
     public function __construct(
         private WorkflowEngine $workflowEngine,
-    ) {
-    }
+    ) {}
 
     /**
      * Acquire a queue number at a kiosk before the patient's identity is
