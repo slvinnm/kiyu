@@ -309,22 +309,23 @@ class QueueService
             // 2. Create new queue ticket at target station
             // Reuse the same visit_workflow_step (same workflow step execution)
             $number = (new QueueNumberGenerator())->generate($targetStation);
+            $internalSequence = (new QueueNumberGenerator())->getSequence($targetStation);
             $newTicket = QueueTicket::create([
                 'visit_id' => $ticket->visit_id,
                 'visit_workflow_step_id' => $ticket->visit_workflow_step_id,
                 'station_id' => $targetStation->id,
                 'queue_number' => $number,
                 'priority' => $ticket->priority->value,
-                'internal_sequence' => 0, // Will be ordered correctly by selector
+                'internal_sequence' => $internalSequence,
                 'status' => QueueStatus::CREATED->value,
                 // notes can be copied if desired
                 'notes' => $ticket->notes,
             ]);
 
-            // 3. Log transfer event on original ticket
+            // 3. Log transfer event on original ticket with actual previous status
             $ticket->events()->create([
                 'event_type' => \App\Enums\QueueEventType::TRANSFERRED,
-                'from_status' => QueueStatus::IN_PROGRESS->value, // or whatever it was
+                'from_status' => $ticket->status->value,
                 'to_status' => QueueStatus::TRANSFERRED->value,
                 'user_id' => $transferredByUserId,
             ]);

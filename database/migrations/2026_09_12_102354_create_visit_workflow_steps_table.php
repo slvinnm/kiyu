@@ -15,12 +15,13 @@ return new class extends Migration
             $table->id();
             $table->foreignId('visit_workflow_id')->constrained()->restrictOnDelete();
             $table->foreignId('workflow_step_id')->constrained()->restrictOnDelete();
+            $table->unsignedInteger('execution_number')->default(1);
             $table->string('status'); // PENDING, IN_PROGRESS, COMPLETED, SKIPPED, CANCELLED
             $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['visit_workflow_id', 'workflow_step_id']);
+            $table->unique(['visit_workflow_id', 'workflow_step_id', 'execution_number'], 'vw_step_exec');
             $table->index('workflow_step_id');
         });
     }

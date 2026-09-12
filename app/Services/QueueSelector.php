@@ -24,10 +24,8 @@ class QueueSelector
                 return null;
             }
 
-            $machine = new QueueStateMachine();
-            $machine->apply($ticket, QueueStatus::CALLED);
-
-            return $ticket->fresh();
+            // Selection ONLY — no state mutation. QueueService performs transition.
+            return $ticket;
         });
     }
 

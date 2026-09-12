@@ -16,7 +16,8 @@ class QueueCounter extends Model
     protected $fillable = [
         'station_id',
         'counter_date',
-        'last_number',
+        'last_queue_number',
+        'last_internal_sequence',
     ];
 
     protected $casts = [
@@ -29,10 +30,10 @@ class QueueCounter extends Model
     }
 
     /**
-     * Atomically increment and return the new counter value.
+     * Atomically increment the queue number and return the new value.
      * Uses row-level locking for concurrency safety.
      */
-    public function incrementAndGet(): int
+    public function incrementQueueNumberAndGet(): int
     {
         // Lock the row, increment, and return the new value in one atomic operation
         return DB::transaction(function (): int {
@@ -42,13 +43,39 @@ class QueueCounter extends Model
                     'station_id' => $this->station_id,
                     'counter_date' => $this->counter_date,
                 ], [
-                    'last_number' => 0,
+                    'last_queue_number' => 0,
+                    'last_internal_sequence' => 0,
                 ]);
 
-            $counter->last_number += 1;
+            $counter->last_queue_number += 1;
             $counter->save();
 
-            return $counter->last_number;
+            return $counter->last_queue_number;
+        });
+    }
+
+    /**
+     * Atomically increment the internal sequence and return the new value.
+     * Uses row-level locking for concurrency safety.
+     */
+    public function incrementInternalSequenceAndGet(): int
+    {
+        // Lock the row, increment, and return the new value in one atomic operation
+        return DB::transaction(function (): int {
+            /** @var static $counter */
+            $counter = static::lockForUpdate()
+                ->firstOrCreate([
+                    'station_id' => $this->station_id,
+                    'counter_date' => $this->counter_date,
+                ], [
+                    'last_queue_number' => 0,
+                    'last_internal_sequence' => 0,
+                ]);
+
+            $counter->last_internal_sequence += 1;
+            $counter->save();
+
+            return $counter->last_internal_sequence;
         });
     }
 }

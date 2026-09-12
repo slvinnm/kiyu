@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             StationSeeder::class,
             PatientSeeder::class,
             UserSeeder::class,
+            WorkflowSeeder::class,
         ]);
     }
 }

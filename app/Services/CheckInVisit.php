@@ -32,8 +32,8 @@ class CheckInVisit
             $visit = Visit::with(['patient', 'department', 'workflowVersion'])->findOrFail($visitId);
 
             // 2. Validate current state
-            if ($visit->status !== VisitStatus::AWAITING_CHECKIN->value) {
-                throw new \LogicException("Visit must be in AWAITING_CHECKIN state to check in. Current: {$visit->status}");
+            if ($visit->status !== VisitStatus::AWAITING_CHECKIN) {
+                throw new \LogicException("Visit must be in AWAITING_CHECKIN state to check in. Current: " . ($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status));
             }
 
             // 3. Transition to CHECKED_IN

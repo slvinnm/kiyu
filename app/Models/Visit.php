@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\IntakeChannel;
+use App\Enums\Priority;
 use App\Enums\VisitStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,6 +20,7 @@ class Visit extends Model
         'department_id',
         'workflow_version_id',
         'visit_number',
+        'priority',
         'intake_channel',
         'status',
         'registered_by',
@@ -27,6 +29,7 @@ class Visit extends Model
     ];
 
     protected $casts = [
+        'priority' => Priority::class,
         'intake_channel' => IntakeChannel::class,
         'status' => VisitStatus::class,
         'checked_in_at' => 'datetime',

@@ -15,6 +15,7 @@ class VisitWorkflowStep extends Model
     protected $fillable = [
         'visit_workflow_id',
         'workflow_step_id',
+        'execution_number',
         'status',
         'started_at',
         'completed_at',

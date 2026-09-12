@@ -18,7 +18,8 @@ return new class extends Migration
             $table->id();
             $table->foreignId('station_id')->constrained()->restrictOnDelete();
             $table->date('counter_date');
-            $table->unsignedInteger('last_number')->default(0);
+            $table->unsignedInteger('last_queue_number')->default(0);
+            $table->unsignedInteger('last_internal_sequence')->default(0);
 
             $table->unique(['station_id', 'counter_date']);
         });

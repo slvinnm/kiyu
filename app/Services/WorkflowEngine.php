@@ -58,7 +58,7 @@ class WorkflowEngine
                         'visit_workflow_step_id' => $visitWorkflowStep->id,
                         'station_id' => $station->id,
                         'queue_number' => $number,
-                        'priority' => $this->resolvePriorityForStep($visit, $firstQueueStep),
+                        'priority' => $this->resolvePriorityForStep($visit, $initialStep),
                         'internal_sequence' => $internalSequence,
                         'status' => QueueStatus::CREATED->value,
                     ]);
@@ -90,11 +90,14 @@ class WorkflowEngine
                 'completed_at' => now(),
             ]);
 
-            // 2. Mark queue ticket as completed
-            $ticket->update([
-                'status' => \App\Enums\QueueStatus::COMPLETED->value,
-                'completed_at' => now(),
-            ]);
+            // 2. Mark queue ticket as completed (already done by QueueService::completeTicket's state machine)
+            //    but ensure completed_at is set consistently
+            if ($ticket->status !== \App\Enums\QueueStatus::COMPLETED->value) {
+                $ticket->update([
+                    'status' => \App\Enums\QueueStatus::COMPLETED->value,
+                    'completed_at' => now(),
+                ]);
+            }
 
             // 3. Log completion event
             $ticket->events()->create([
@@ -159,7 +162,7 @@ class WorkflowEngine
                         'visit_workflow_step_id' => $nextVisitWorkflowStep->id,
                         'station_id' => $station->id,
                         'queue_number' => $number,
-                        'priority' => $this->resolvePriorityForStep($visit, $firstQueueStep),
+                        'priority' => $this->resolvePriorityForStep($visit, $nextStep),
                         'internal_sequence' => $internalSequence,
                         'status' => \App\Enums\QueueStatus::CREATED->value,
                     ]);
@@ -179,19 +182,23 @@ class WorkflowEngine
         });
     }
 
-    private function resolvePriorityForStep(Visit $visit, WorkflowStep $step): int
+    private function resolvePriorityForStep(Visit $visit, ?WorkflowStep $step = null): int
     {
-        // Domain/business rule: priority is derived from visit context
-        // For now, use normal priority; future rules (referral, emergency) can extend
-        return Priority::NORMAL->value;
+        // Return visit's durable priority; default to NORMAL if not set
+        return $visit->priority ?? Priority::NORMAL->value;
     }
 
     public function createOrUpdateVisitWorkflowStep(VisitWorkflow $workflow, WorkflowStep $step): VisitWorkflowStep
     {
-        return VisitWorkflowStep::updateOrCreate([
+        // For repeatable steps, we must find next execution number rather than updateOrCreate
+        $maxExecution = VisitWorkflowStep::where('visit_workflow_id', $workflow->id)
+            ->where('workflow_step_id', $step->id)
+            ->max('execution_number') ?? 0;
+
+        return VisitWorkflowStep::create([
             'visit_workflow_id' => $workflow->id,
             'workflow_step_id' => $step->id,
-        ], [
+            'execution_number' => $maxExecution + 1,
             'status' => VisitWorkflowStepStatus::PENDING->value,
         ]);
     }

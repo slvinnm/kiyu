@@ -8,6 +8,7 @@ use App\Enums\Priority;
 use App\Models\Department;
 use App\Models\Patient;
 use App\Models\Visit;
+use App\Models\VisitCounter;
 use App\Models\WorkflowVersion;
 use App\Models\WorkflowStep;
 use Illuminate\Support\Facades\DB;
@@ -41,24 +42,23 @@ class CreateVisit
                 ->firstOrFail();
 
             // 4. Create the visit
-            $visit = Visit::create([
-                'patient_id' => $patient->id,
-                'department_id' => $department->id,
-                'workflow_version_id' => $workflowVersion->id,
-                'visit_number' => $this->generateVisitNumber(),
-                'intake_channel' => $intakeChannel->value,
-                'status' => VisitStatus::AWAITING_CHECKIN->value,
-                // registered_by will be set by the caller if applicable (e.g., receptionist)
-            ]);
-
-            // 5. Determine initial priority - backend-controlled only
-            // Priority must NOT come from public API; use trusted business rules
             $visitPriority = $priority ?? Priority::NORMAL->value;
             if (!in_array($visitPriority, [Priority::NORMAL->value, Priority::PRIORITY->value, Priority::EMERGENCY->value])) {
                 $visitPriority = Priority::NORMAL->value;
             }
 
-            // 6. Get the first workflow step that requires a queue
+            $visit = Visit::create([
+                'patient_id' => $patient->id,
+                'department_id' => $department->id,
+                'workflow_version_id' => $workflowVersion->id,
+                'visit_number' => $this->generateVisitNumber(),
+                'priority' => $visitPriority,
+                'intake_channel' => $intakeChannel->value,
+                'status' => $this->resolveInitialStatus($intakeChannel),
+                // registered_by will be set by the caller if applicable (e.g., receptionist)
+            ]);
+
+            // 5. Get the first workflow step that requires a queue
             $firstQueueStep = $workflowVersion->steps()
                 ->where('requires_queue', true)
                 ->orderBy('sequence')
@@ -79,20 +79,23 @@ class CreateVisit
         });
     }
 
-    /**
-     * Generate a unique visit number (e.g., V-20260912-00001).
-     * Format: V-YYMMDD-SEQ
-     */
+    private function resolveInitialStatus(IntakeChannel $channel): string
+    {
+        // Per lifecycle rules:
+        // - ONLINE: patient registers remotely; arrives physically later → AWAITING_CHECKIN
+        // - KIOSK: patient at station, completes registration → CHECKED_IN (ready for queue)
+        // - WALK_IN: patient at reception; check-in handled at registration → CHECKED_IN
+        return match ($channel) {
+            IntakeChannel::ONLINE => VisitStatus::AWAITING_CHECKIN->value,
+            IntakeChannel::KIOSK, IntakeChannel::WALK_IN => VisitStatus::CHECKED_IN->value,
+        };
+    }
     private function generateVisitNumber(): string
     {
+        $counter = new VisitCounter();
+        $nextNumber = $counter->incrementAndGet();
+
         $date = now()->format('y-m-d');
-        $counterKey = "visit_counter_{$date}";
-
-        // Simple atomic counter - in production you might use a dedicated table
-        $last = cache()->get($counterKey, 0);
-        $next = $last + 1;
-        cache()->put($counterKey, $next, 60 * 24); // Cache for 24 hours
-
-        return sprintf('V-%s-%05d', str_replace('-', '', $date), $next);
+        return sprintf('V-%s-%05d', str_replace('-', '', $date), $nextNumber);
     }
 }

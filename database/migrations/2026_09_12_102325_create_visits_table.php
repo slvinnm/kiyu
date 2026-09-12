@@ -17,6 +17,7 @@ return new class extends Migration
             $table->foreignId('department_id')->constrained()->restrictOnDelete();
             $table->foreignId('workflow_version_id')->constrained()->restrictOnDelete();
             $table->string('visit_number')->unique();
+            $table->unsignedInteger('priority')->default(1); // 1=NORMAL, 2=PRIORITY, 3=EMERGENCY
             $table->string('intake_channel'); // ONLINE, KIOSK, WALK_IN
             $table->string('status'); // AWAITING_CHECKIN, CHECKED_IN, IN_PROGRESS, COMPLETED, CANCELLED
             $table->foreignId('registered_by')->nullable()->constrained('users')->nullOnDelete();
