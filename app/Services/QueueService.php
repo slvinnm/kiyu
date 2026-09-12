@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\Priority;
 use App\Enums\QueueEventType;
 use App\Enums\QueueStatus;
 use App\Enums\VisitStatus;

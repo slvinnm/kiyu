@@ -259,6 +259,7 @@ class WorkflowEngine
         foreach ($steps as $workflowStep) {
             if (! $this->isStepApplicable($workflowStep, $context)) {
                 $this->createSkippedStep($visitWorkflow, $workflowStep);
+
                 continue;
             }
 
@@ -276,6 +277,7 @@ class WorkflowEngine
                             'status' => VisitWorkflowStepStatus::SKIPPED->value,
                             'completed_at' => now(),
                         ]);
+
                         continue;
                     }
 
