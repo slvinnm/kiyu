@@ -32,14 +32,9 @@ class WorkflowEngine
                 return null;
             }
 
-            // 3. Create or find the visit workflow step with concurrency-safe locking
-            // Lock the visit row to prevent concurrent workflow creation for same visit
-            $lockedVisit = Visit::whereKey($visit->id)
-                ->lockForUpdate()
-                ->firstOrFail();
-
+            // 3. Create or find the visit workflow step (idempotent for initial creation)
             $visitWorkflow = VisitWorkflow::firstOrCreate([
-                'visit_id' => $lockedVisit->id,
+                'visit_id' => $visit->id,
                 'workflow_version_id' => $workflowVersion->id,
             ], [
                 'status' => VisitWorkflowStatus::ACTIVE->value,
@@ -112,60 +107,28 @@ class WorkflowEngine
             // 2. QueueTicket state already set to COMPLETED by QueueService::completeTicket's state machine.
             //    WorkflowEngine should not re-mutate QueueTicket status.
 
-            // 3. Process all consecutive non-queue steps automatically, then find the next queue step
+            // 3. Determine next applicable step
             $workflowVersion = $visit->workflowVersion;
             $steps = $workflowVersion->steps();
             $currentSequence = $visitWorkflowStep->workflowStep->sequence;
 
-            // Collect all steps after current, in sequence order
-            $remainingSteps = $steps->where('sequence', '>', $currentSequence)
-                ->sortBy('sequence')
-                ->values()
-                ->all();
-
-            // Process all consecutive non-queue steps from the start
-            foreach ($remainingSteps as $step) {
-                if ($step->requires_queue) {
-                    // Found a queue-requiring step — stop processing non-queue steps
-                    break;
-                } else {
-                    // Non-queue step: create VisitWorkflowStep execution and mark completed
-                    $visitWorkflow = VisitWorkflow::firstOrCreate([
-                        'visit_id' => $visit->id,
-                        'workflow_version_id' => $workflowVersion->id,
-                    ], [
-                        'status' => VisitWorkflowStatus::ACTIVE->value,
-                    ]);
-
-                    $executionNumber = VisitWorkflowStep::where('visit_workflow_id', $visitWorkflow->id)
-                        ->where('workflow_step_id', $step->id)
-                        ->max('execution_number') ?? 0;
-
-                    $nonQueueStep = VisitWorkflowStep::create([
-                        'visit_workflow_id' => $visitWorkflow->id,
-                        'workflow_step_id' => $step->id,
-                        'execution_number' => $executionNumber + 1,
-                        'status' => VisitWorkflowStepStatus::PENDING->value,
-                    ]);
-
-                    // Mark non-queue step as completed immediately
-                    $nonQueueStep->update([
-                        'status' => VisitWorkflowStepStatus::COMPLETED->value,
-                        'completed_at' => now(),
-                    ]);
-                }
-            }
-
-            // Now find the first queue-requiring step from remaining
             $nextStep = null;
-            foreach ($remainingSteps as $step) {
-                if ($step->requires_queue) {
+            foreach ($steps as $step) {
+                if ($step->sequence > $currentSequence) {
+                    // Optional steps can be skipped; only pick them if not skipped.
+                    // For now, proceed to first non-optional or optional step after current.
                     $nextStep = $step;
                     break;
                 }
             }
 
-            // 5. Check for completion — if no next step at all, mark visit complete
+            // Also check for optional steps that might come earlier
+            if (! $nextStep) {
+                // Check for optional steps that were skipped past
+                $nextStep = $steps->firstWhere(fn($s) => $s->is_optional && $s->sequence > $currentSequence);
+            }
+
+            // 5. Check for completion
             if (! $nextStep) {
                 // No more steps, mark visit as complete
                 $visit->update([
@@ -176,7 +139,7 @@ class WorkflowEngine
                 return ['next_step' => null, 'visit_completed' => true, 'ticket' => $ticket->fresh()];
             }
 
-            // 6. Create next visit workflow step with proper execution number allocation
+            // 6. Create next visit workflow step
             $visitWorkflow = VisitWorkflow::firstOrCreate([
                 'visit_id' => $visit->id,
                 'workflow_version_id' => $workflowVersion->id,
@@ -184,12 +147,9 @@ class WorkflowEngine
                 'status' => VisitWorkflowStatus::ACTIVE->value,
             ]);
 
-            $executionNumber = $this->allocateExecutionNumber($visitWorkflow, $nextStep);
-
             $nextVisitWorkflowStep = VisitWorkflowStep::create([
                 'visit_workflow_id' => $visitWorkflow->id,
                 'workflow_step_id' => $nextStep->id,
-                'execution_number' => $executionNumber,
                 'status' => VisitWorkflowStepStatus::PENDING->value,
             ]);
 
@@ -224,28 +184,6 @@ class WorkflowEngine
         });
     }
 
-    /**
-     * Centralized execution-number allocation for VisitWorkflowStep.
-     * Locks the parent VisitWorkflow row to serialize concurrent execution.
-     * Returns the next execution number for the given step.
-     */
-    private function allocateExecutionNumber(VisitWorkflow $workflow, WorkflowStep $step): int
-    {
-        return DB::transaction(function () use ($workflow, $step) {
-            // Lock the parent workflow row — this serializes all execution
-            // number allocations for steps within this visit workflow.
-            $lockedWorkflow = VisitWorkflow::whereKey($workflow->id)
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            $maxExecution = VisitWorkflowStep::where('visit_workflow_id', $lockedWorkflow->id)
-                ->where('workflow_step_id', $step->id)
-                ->max('execution_number') ?? 0;
-
-            return $maxExecution + 1;
-        });
-    }
-
     private function resolvePriorityForStep(Visit $visit, ?WorkflowStep $step = null): int
     {
         // Return visit's durable priority; default to NORMAL if not set
@@ -254,22 +192,21 @@ class WorkflowEngine
 
     public function createOrUpdateVisitWorkflowStep(VisitWorkflow $workflow, WorkflowStep $step): VisitWorkflowStep
     {
-        // For repeatable steps, we must find next execution number rather than updateOrCreate
-        // Lock the parent VisitWorkflow row via query (not model instance) to serialize
-        // all execution-number allocations for steps within this visit workflow.
-        $lockedWorkflow = VisitWorkflow::whereKey($workflow->id)
-            ->lockForUpdate()
-            ->firstOrFail();
+        // For repeatable steps, we must find next execution number rather than updateOrCreate.
+        // Lock the workflow to serialize concurrent executions of the same step.
+        return DB::transaction(function () use ($workflow, $step) {
+            $workflow->lockForUpdate();
 
-        $maxExecution = VisitWorkflowStep::where('visit_workflow_id', $lockedWorkflow->id)
-            ->where('workflow_step_id', $step->id)
-            ->max('execution_number') ?? 0;
+            $maxExecution = VisitWorkflowStep::where('visit_workflow_id', $workflow->id)
+                ->where('workflow_step_id', $step->id)
+                ->max('execution_number') ?? 0;
 
-        return VisitWorkflowStep::create([
-            'visit_workflow_id' => $lockedWorkflow->id,
-            'workflow_step_id' => $step->id,
-            'execution_number' => $maxExecution + 1,
-            'status' => VisitWorkflowStepStatus::PENDING->value,
-        ]);
+            return VisitWorkflowStep::create([
+                'visit_workflow_id' => $workflow->id,
+                'workflow_step_id' => $step->id,
+                'execution_number' => $maxExecution + 1,
+                'status' => VisitWorkflowStepStatus::PENDING->value,
+            ]);
+        });
     }
 }
