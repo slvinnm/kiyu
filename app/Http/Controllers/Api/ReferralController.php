@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\Priority;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\CreateReferralRequest;
@@ -48,7 +49,7 @@ class ReferralController extends Controller
             referredByUserId: $user->id,
             reason: $request->input('reason'),
             priority: $request->filled('priority')
-                ? \App\Enums\Priority::from($request->integer('priority'))
+                ? Priority::from($request->integer('priority'))
                 : null,
         );
 
