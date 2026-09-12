@@ -61,6 +61,11 @@ class Visit extends Model
         return $this->hasOne(VisitWorkflow::class);
     }
 
+    public function queueAcquisition(): HasOne
+    {
+        return $this->hasOne(QueueAcquisition::class);
+    }
+
     public function queueTickets(): HasMany
     {
         return $this->hasMany(QueueTicket::class);
