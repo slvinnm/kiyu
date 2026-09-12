@@ -1,4 +1,28 @@
-# Phase 1.9 Status — Queue Mutation Concurrency (Pass 4)
+# Phase 1.9 Status — Queue Mutation Concurrency (Pass 5 — Final)
+
+## Date: 2026-09-12 (Pass 5 — interrupted resume complete)
+
+## Continuation of Pass 5 (from previous session interruption)
+
+Fixes applied to restore workflow/concurrency integrity (verified by inspection / syntax check; concurrency NOT EXECUTED):
+
+- `WorkflowEngine::createFromIntake()` — station validation at `requires_queue` (line 66-68); initial step lookup kept at execution 1 (line 44-48) with allocator-based creation at line 57 (`allocateExecutionNumber()` with `lockForUpdate` query lock — verified syntax).
+- `QueueNumberGenerator::allocate()` — rewritten to remove `DB::transaction()` wrapper; method is transaction-neutral (caller owns boundary via `DB::transaction()` in QueueService/WorkflowEngine). Row-level `lockForUpdate()` preserved. Syntax verified (`php -l` OK).
+- `WorkflowEngine::allocateExecutionNumber()` — uses `VisitWorkflow::whereKey()->lockForUpdate()->firstOrFail()` then `VisitWorkflowStep::max('execution_number')`; query-lock verified by inspection.
+- All 7 QueueService mutation locks verified present (`startTicket`, `holdTicket`, `resumeTicket`, `skipTicket`, `cancelTicket`, `transferTicket`, `completeTicket`).
+
+## Pass 5 Status — Verified by Inspection / Syntax (NOT EXECUTED)
+
+- `php -l` passes on `WorkflowEngine.php`, `QueueService.php`, `QueueNumberGenerator.php` (SYNTAX OK ALL)
+- `QueueNumberGenerator::allocate()` contains no `DB::transaction()` wrapper (confirmed by Read)
+- `WorkflowEngine::createFromIntake()` station validation present (`!$initialStep->station` throws LogicException)
+- `QueueStateMachine::isEligibleForNextSelection()` uses `=== QueueStatus::CREATED` enum comparison (Pass 3)
+- `QueueService::callNext()` retains `DB::transaction()` (selection + transition owned by service; QueueSelector has no inner transaction)
+- No Phase 2 code added; no dependency changes
+
+## NOT EXECUTED (honest reporting — unchanged from Pass 4)
+
+Concurrent mutation scenarios A–G, full `migrate:fresh --seed`, manual A–J verification, concurrent `transferTicket()` (highest risk — NOT EXECUTED across all passes).
 
 ## Date: 2026-09-12 (Pass 4)
 

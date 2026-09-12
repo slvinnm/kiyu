@@ -41,6 +41,7 @@ class WorkflowEngine
                 'status' => VisitWorkflowStatus::ACTIVE->value,
             ]);
 
+            // Check for existing initial step (execution 1 for first execution)
             $existingStep = VisitWorkflowStep::where('visit_workflow_id', $visitWorkflow->id)
                 ->where('workflow_step_id', $initialStep->id)
                 ->where('execution_number', 1)
@@ -63,6 +64,9 @@ class WorkflowEngine
             ]);
 
             if ($initialStep->requires_queue) {
+                if (! $initialStep->station) {
+                    throw new \LogicException("Workflow step '{$initialStep->name}' (sequence {$initialStep->sequence}) requires a queue but has no station.");
+                }
                 $station = $initialStep->station;
                 if ($station) {
                     $allocation = (new QueueNumberGenerator())->allocate($station);
@@ -136,6 +140,9 @@ class WorkflowEngine
             ]);
 
             if ($nextStep->requires_queue) {
+                if (! $nextStep->station) {
+                    throw new \LogicException("Workflow step '{$nextStep->name}' (sequence {$nextStep->sequence}) requires a queue but has no station.");
+                }
                 $station = $nextStep->station;
                 if ($station) {
                     $allocation = (new QueueNumberGenerator())->allocate($station);

@@ -29,55 +29,53 @@ class QueueNumberGenerator
         $counterDate = $date ? $date->format('Y-m-d') : now()->format('Y-m-d');
         $prefix = $station->queue_prefix;
 
-        return DB::transaction(function () use ($station, $counterDate, $prefix) {
-            // Lock the counter row to prevent concurrent collisions
-            // firstOrCreate with unique constraint: if row exists, we get it;
-            // if not, we create it. A race may cause a unique constraint violation
-            // that the transaction will catch and retry.
-            $maxRetries = 3;
-            $retries = 0;
+        // Lock the counter row to prevent concurrent collisions.
+        // Caller owns the DB::transaction() boundary; this method only provides
+        // row-level locking and atomic increment within that transaction.
+        $maxRetries = 3;
+        $retries = 0;
 
-            while ($retries < $maxRetries) {
-                try {
-                    $counter = QueueCounter::where('station_id', $station->id)
-                        ->where('counter_date', $counterDate)
-                        ->lockForUpdate()
-                        ->firstOrCreate([
-                            'station_id' => $station->id,
-                            'counter_date' => $counterDate,
-                        ]);
+        while ($retries < $maxRetries) {
+            try {
+                $counter = QueueCounter::where('station_id', $station->id)
+                    ->where('counter_date', $counterDate)
+                    ->lockForUpdate()
+                    ->firstOrCreate([
+                        'station_id' => $station->id,
+                        'counter_date' => $counterDate,
+                    ]);
 
-                    $counter->increment('last_queue_number');
-                    $counter->increment('last_internal_sequence');
-                    $counter->refresh();
+                $counter->increment('last_queue_number');
+                $counter->increment('last_internal_sequence');
+                $counter->refresh();
 
-                    $queueNumber = $prefix . '-' . str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
-                    $internalSequence = $counter->last_internal_sequence;
+                $queueNumber = $prefix . '-' . str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
+                $internalSequence = $counter->last_internal_sequence;
 
-                    return ['queue_number' => $queueNumber, 'internal_sequence' => $internalSequence];
-                } catch (\Illuminate\Database\QueryException $e) {
-                    if ($e->getCode() === '23000' && $retries < $maxRetries - 1) {
-                        $retries++;
-                        continue;
-                    }
-                    throw $e;
+                return ['queue_number' => $queueNumber, 'internal_sequence' => $internalSequence];
+            } catch (\Illuminate\Database\QueryException $e) {
+                if ($e->getCode() === '23000' && $retries < $maxRetries - 1) {
+                    $retries++;
+                    continue;
                 }
+                throw $e;
             }
+        }
 
-            // Should not reach here, but fallback
-            $counter = QueueCounter::where('station_id', $station->id)
-                ->where('counter_date', $counterDate)
-                ->lockForUpdate()
-                ->first();
+        // Fallback after retry exhaustion; transaction should be rolled back
+        // by the caller if this point is reached.
+        $counter = QueueCounter::where('station_id', $station->id)
+            ->where('counter_date', $counterDate)
+            ->lockForUpdate()
+            ->first();
 
-            $counter->increment('last_queue_number');
-            $counter->increment('last_internal_sequence');
-            $counter->refresh();
+        $counter->increment('last_queue_number');
+        $counter->increment('last_internal_sequence');
+        $counter->refresh();
 
-            $queueNumber = $prefix . '-' . str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
-            $internalSequence = $counter->last_internal_sequence;
+        $queueNumber = $prefix . '-' . str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
+        $internalSequence = $counter->last_internal_sequence;
 
-            return ['queue_number' => $queueNumber, 'internal_sequence' => $internalSequence];
-        });
+        return ['queue_number' => $queueNumber, 'internal_sequence' => $internalSequence];
     }
 }
