@@ -25,18 +25,20 @@ class VisitCounter extends Model
 
     /**
      * Atomically increment and return the new visit number.
-     * Uses row-level locking + firstOrCreate with unique constraint.
      */
     public function incrementAndGet(): int
     {
         return DB::transaction(function (): int {
-            $counter = static::where('counter_date', now()->format('Y-m-d'))
+            $counterDate = now()->format('Y-m-d');
+
+            static::query()->insertOrIgnore([
+                'counter_date' => $counterDate,
+                'last_number' => 0,
+            ]);
+
+            $counter = static::where('counter_date', $counterDate)
                 ->lockForUpdate()
-                ->firstOrCreate([
-                    'counter_date' => now()->format('Y-m-d'),
-                ], [
-                    'last_number' => 0,
-                ]);
+                ->firstOrFail();
 
             $counter->last_number += 1;
             $counter->save();

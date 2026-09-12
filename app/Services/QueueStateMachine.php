@@ -29,6 +29,7 @@ class QueueStateMachine
             QueueStatus::ON_HOLD->value,
             QueueStatus::SKIPPED->value,
             QueueStatus::CANCELLED->value,
+            QueueStatus::TRANSFERRED->value,
         ],
         QueueStatus::ON_HOLD->value => [
             QueueStatus::CALLED->value,
@@ -74,14 +75,17 @@ class QueueStateMachine
         QueueEvent::create([
             'queue_ticket_id' => $ticket->id,
             'event_type' => match ($to) {
-                QueueStatus::CALLED => QueueEventType::CALLED,
+                QueueStatus::CALLED => $fromValue === QueueStatus::ON_HOLD->value
+                    ? QueueEventType::RESUMED
+                    : QueueEventType::CALLED,
                 QueueStatus::IN_PROGRESS => QueueEventType::STARTED,
                 QueueStatus::COMPLETED => QueueEventType::COMPLETED,
                 QueueStatus::ON_HOLD => QueueEventType::HELD,
                 QueueStatus::SKIPPED => QueueEventType::SKIPPED,
                 QueueStatus::CANCELLED => QueueEventType::CANCELLED,
                 QueueStatus::TRANSFERRED => QueueEventType::TRANSFERRED,
-                default => QueueEventType::CREATED,
+                QueueStatus::NO_SHOW => QueueEventType::NO_SHOW,
+                default => throw new \LogicException("No queue event mapping exists for {$toValue}."),
             },
             'from_status' => $fromValue,
             'to_status' => $toValue,

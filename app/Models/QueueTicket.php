@@ -25,8 +25,8 @@ class QueueTicket extends Model
         'started_at',
         'completed_at',
         'assigned_to',
-        'transfer_to_station_id',
-        'transfer_target_station_id',
+        'transferred_from_ticket_id',
+        'transferred_to_station_id',
         'notes',
     ];
 
@@ -61,5 +61,15 @@ class QueueTicket extends Model
     public function events(): HasMany
     {
         return $this->hasMany(QueueEvent::class);
+    }
+
+    public function transferredFrom(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'transferred_from_ticket_id');
+    }
+
+    public function transferredToStation(): BelongsTo
+    {
+        return $this->belongsTo(Station::class, 'transferred_to_station_id');
     }
 }

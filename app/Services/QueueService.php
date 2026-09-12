@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Enums\Priority;
 use App\Enums\QueueEventType;
 use App\Enums\QueueStatus;
+use App\Enums\VisitStatus;
+use App\Enums\VisitWorkflowStepStatus;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\VisitWorkflowStep;
@@ -91,7 +93,19 @@ class QueueService
             }
 
             // Apply transition
-            return $this->stateMachine->apply($ticket, QueueStatus::IN_PROGRESS, $startedByUserId);
+            $started = $this->stateMachine->apply($ticket, QueueStatus::IN_PROGRESS, $startedByUserId);
+
+            if (! $started) {
+                return false;
+            }
+
+            $ticket->visitWorkflowStep()->update([
+                'status' => VisitWorkflowStepStatus::IN_PROGRESS->value,
+                'started_at' => now(),
+            ]);
+            $ticket->visit()->update(['status' => VisitStatus::IN_PROGRESS->value]);
+
+            return true;
         });
     }
 
@@ -120,7 +134,7 @@ class QueueService
         return DB::transaction(function () use ($ticketId, $completedByUserId) {
             // Lock the QueueTicket row to prevent concurrent completion/progression
             $ticket = QueueTicket::with([
-                'visitWorkflowStep.visit', 'visitWorkflowStep.workflowStep.station',
+                'visitWorkflowStep.visitWorkflow.visit', 'visitWorkflowStep.workflowStep.station',
             ])
                 ->whereKey($ticketId)
                 ->lockForUpdate()
@@ -128,7 +142,9 @@ class QueueService
 
             // Validate that ticket is IN_PROGRESS
             if (! $this->stateMachine->isEligibleForCompletion($ticket)) {
-                throw new ValidationException(['Ticket must be IN_PROGRESS to complete.']);
+                throw ValidationException::withMessages([
+                    'ticket' => 'Ticket must be IN_PROGRESS to complete.',
+                ]);
             }
 
             // 1. Mark ticket as completed
@@ -245,6 +261,15 @@ class QueueService
         });
     }
 
+    public function markNoShow(int $ticketId, ?int $markedByUserId = null): bool
+    {
+        return DB::transaction(function () use ($ticketId, $markedByUserId) {
+            $ticket = QueueTicket::query()->whereKey($ticketId)->lockForUpdate()->firstOrFail();
+
+            return $this->stateMachine->apply($ticket, QueueStatus::NO_SHOW, $markedByUserId);
+        });
+    }
+
     /**
      * Cancel a ticket.
      *
@@ -303,19 +328,28 @@ class QueueService
 
             $targetStation = Station::findOrFail($targetStationId);
 
-            // Transfer only valid within the same workflow step
-            $currentStep = $ticket->visitWorkflowStep->workflowStep;
-            $targetStep = $targetStation->workflowSteps()
-                ->where('workflow_version_id', $ticket->visit->workflow_version_id)
-                ->where('name', $currentStep->name)
-                ->first();
+            if (! in_array($ticket->status, [QueueStatus::CREATED, QueueStatus::CALLED, QueueStatus::IN_PROGRESS], true)) {
+                throw new \LogicException('Only active queue tickets can be transferred.');
+            }
 
-            if (! $targetStep) {
-                throw new \LogicException("Cannot transfer to station {$targetStation->code}: no matching workflow step '{$currentStep->name}'.");
+            if ($targetStation->id === $ticket->station_id || ! $targetStation->is_active) {
+                throw new \LogicException('Transfer requires a different active station.');
+            }
+
+            // A workflow step has one configured station in the current schema.
+            // A same-department, same-type station is therefore the valid proxy for
+            // moving its execution to another physical workstation.
+            $currentStep = $ticket->visitWorkflowStep->workflowStep;
+            $sourceStation = $currentStep->station;
+            if ($targetStation->department_id !== $sourceStation->department_id || $targetStation->type !== $sourceStation->type) {
+                throw new \LogicException('Transfer target must be an active station of the same department and station type.');
             }
 
             // 1. Mark original ticket as transferred
-            $this->stateMachine->apply($ticket, QueueStatus::TRANSFERRED, $transferredByUserId);
+            if (! $this->stateMachine->apply($ticket, QueueStatus::TRANSFERRED, $transferredByUserId)) {
+                throw new \LogicException('Ticket cannot transition to TRANSFERRED.');
+            }
+            $ticket->update(['transferred_to_station_id' => $targetStation->id]);
 
             // 2. Create new queue ticket at target station
             // Reuse the same visit_workflow_step (same workflow step execution)
@@ -328,6 +362,7 @@ class QueueService
                 'priority' => $ticket->priority->value,
                 'internal_sequence' => $allocation['internal_sequence'],
                 'status' => QueueStatus::CREATED->value,
+                'transferred_from_ticket_id' => $ticket->id,
                 // notes can be copied if desired
                 'notes' => $ticket->notes,
             ]);

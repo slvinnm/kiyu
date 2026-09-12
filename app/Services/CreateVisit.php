@@ -59,16 +59,14 @@ class CreateVisit
                 // registered_by will be set by the caller if applicable (e.g., receptionist)
             ]);
 
-            // 5. Get the first workflow step that requires a queue
-            $firstQueueStep = $workflowVersion->steps()
-                ->where('requires_queue', true)
-                ->orderBy('sequence')
-                ->first();
+            // 5. Start at the actual first workflow step. WorkflowEngine
+            // automatically completes consecutive non-queue steps.
+            $firstStep = $workflowVersion->steps()->first();
 
             // 7. If the first step requires a queue, create the initial queue ticket
-            if ($firstQueueStep) {
+            if ($firstStep) {
                 $workflowEngine = new WorkflowEngine;
-                $initialTicket = $workflowEngine->createFromIntake($visit, $firstQueueStep->sequence);
+                $initialTicket = $workflowEngine->createFromIntake($visit, $firstStep->sequence);
 
                 // Override priority if specified (internal only)
                 if ($initialTicket && $priority !== null) {
@@ -84,11 +82,11 @@ class CreateVisit
     {
         // Per lifecycle rules:
         // - ONLINE: patient registers remotely; arrives physically later → AWAITING_CHECKIN
-        // - KIOSK: patient at station, completes registration → CHECKED_IN (ready for queue)
-        // - WALK_IN: patient at reception; check-in handled at registration → CHECKED_IN
+        // - KIOSK: patient is physically present and ready to wait
+        // - WALK_IN: patient is physically present and ready to wait
         return match ($channel) {
             IntakeChannel::ONLINE => VisitStatus::AWAITING_CHECKIN->value,
-            IntakeChannel::KIOSK, IntakeChannel::WALK_IN => VisitStatus::CHECKED_IN->value,
+            IntakeChannel::KIOSK, IntakeChannel::WALK_IN => VisitStatus::WAITING->value,
         };
     }
 

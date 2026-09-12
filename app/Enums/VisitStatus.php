@@ -6,6 +6,7 @@ enum VisitStatus: string
 {
     case AWAITING_CHECKIN = 'AWAITING_CHECKIN';
     case CHECKED_IN = 'CHECKED_IN';
+    case WAITING = 'WAITING';
     case IN_PROGRESS = 'IN_PROGRESS';
     case COMPLETED = 'COMPLETED';
     case CANCELLED = 'CANCELLED';
@@ -15,6 +16,7 @@ enum VisitStatus: string
         return match ($this) {
             self::AWAITING_CHECKIN => 'Awaiting Check-in',
             self::CHECKED_IN => 'Checked In',
+            self::WAITING => 'Waiting',
             self::IN_PROGRESS => 'In Progress',
             self::COMPLETED => 'Completed',
             self::CANCELLED => 'Cancelled',
