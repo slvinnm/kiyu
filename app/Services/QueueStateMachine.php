@@ -2,9 +2,10 @@
 
 namespace App\Services;
 
+use App\Enums\QueueEventType;
 use App\Enums\QueueStatus;
+use App\Models\QueueEvent;
 use App\Models\QueueTicket;
-use Illuminate\Support\Facades\DB;
 
 class QueueStateMachine
 {
@@ -49,6 +50,7 @@ class QueueStateMachine
             return false;
         }
         $allowed = $this->validTransitions[$from->value] ?? [];
+
         return in_array($to->value, $allowed);
     }
 
@@ -69,17 +71,17 @@ class QueueStateMachine
         ]);
 
         // Log event
-        \App\Models\QueueEvent::create([
+        QueueEvent::create([
             'queue_ticket_id' => $ticket->id,
             'event_type' => match ($to) {
-                QueueStatus::CALLED => \App\Enums\QueueEventType::CALLED,
-                QueueStatus::IN_PROGRESS => \App\Enums\QueueEventType::STARTED,
-                QueueStatus::COMPLETED => \App\Enums\QueueEventType::COMPLETED,
-                QueueStatus::ON_HOLD => \App\Enums\QueueEventType::HELD,
-                QueueStatus::SKIPPED => \App\Enums\QueueEventType::SKIPPED,
-                QueueStatus::CANCELLED => \App\Enums\QueueEventType::CANCELLED,
-                QueueStatus::TRANSFERRED => \App\Enums\QueueEventType::TRANSFERRED,
-                default => \App\Enums\QueueEventType::CREATED,
+                QueueStatus::CALLED => QueueEventType::CALLED,
+                QueueStatus::IN_PROGRESS => QueueEventType::STARTED,
+                QueueStatus::COMPLETED => QueueEventType::COMPLETED,
+                QueueStatus::ON_HOLD => QueueEventType::HELD,
+                QueueStatus::SKIPPED => QueueEventType::SKIPPED,
+                QueueStatus::CANCELLED => QueueEventType::CANCELLED,
+                QueueStatus::TRANSFERRED => QueueEventType::TRANSFERRED,
+                default => QueueEventType::CREATED,
             },
             'from_status' => $fromValue,
             'to_status' => $toValue,

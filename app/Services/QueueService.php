@@ -3,9 +3,10 @@
 namespace App\Services;
 
 use App\Enums\Priority;
+use App\Enums\QueueEventType;
 use App\Enums\QueueStatus;
-use App\Enums\VisitWorkflowStepStatus;
 use App\Models\QueueTicket;
+use App\Models\Station;
 use App\Models\VisitWorkflowStep;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -23,9 +24,10 @@ class QueueService
      *
      * All operations are transactional and concurrency-safe.
      */
-
     protected QueueStateMachine $stateMachine;
+
     protected QueueSelector $selector;
+
     protected WorkflowEngine $workflowEngine;
 
     public function __construct(
@@ -33,9 +35,9 @@ class QueueService
         ?QueueSelector $selector = null,
         ?WorkflowEngine $workflowEngine = null
     ) {
-        $this->stateMachine = $stateMachine ?? new QueueStateMachine();
-        $this->selector = $selector ?? new QueueSelector();
-        $this->workflowEngine = $workflowEngine ?? new WorkflowEngine();
+        $this->stateMachine = $stateMachine ?? new QueueStateMachine;
+        $this->selector = $selector ?? new QueueSelector;
+        $this->workflowEngine = $workflowEngine ?? new WorkflowEngine;
     }
 
     /**
@@ -44,14 +46,13 @@ class QueueService
      * Required invariant:
      *   Only CREATED tickets are selectable by callNext().
      *
-     * @param int $stationId
-     * @param int|null $calledByUserId Optional user ID who called the ticket
+     * @param  int|null  $calledByUserId  Optional user ID who called the ticket
      * @return QueueTicket|null The called ticket, or null if no tickets waiting
      */
     public function callNext(int $stationId, ?int $calledByUserId = null): ?QueueTicket
     {
         return DB::transaction(function () use ($stationId, $calledByUserId) {
-            $station = \App\Models\Station::findOrFail($stationId);
+            $station = Station::findOrFail($stationId);
 
             // 1. Select next CREATED ticket (priority DESC, internal_sequence ASC)
             $ticket = $this->selector->callNext($station);
@@ -74,8 +75,7 @@ class QueueService
      * Required transition:
      *   CALLED → IN_PROGRESS
      *
-     * @param int $ticketId
-     * @param int|null $startedByUserId Optional user ID who started the ticket
+     * @param  int|null  $startedByUserId  Optional user ID who started the ticket
      * @return bool True if started, false if invalid transition
      */
     public function startTicket(int $ticketId, ?int $startedByUserId = null): bool
@@ -112,8 +112,7 @@ class QueueService
      *   ↓
      *   If no steps remain: Visit = COMPLETED
      *
-     * @param int $ticketId
-     * @param int|null $completedByUserId Optional user ID who completed the ticket
+     * @param  int|null  $completedByUserId  Optional user ID who completed the ticket
      * @return array ['ticket' => QueueTicket, 'nextStep' => WorkflowStep|null, 'visitCompleted' => bool]
      */
     public function completeTicket(int $ticketId, ?int $completedByUserId = null): array
@@ -121,7 +120,7 @@ class QueueService
         return DB::transaction(function () use ($ticketId, $completedByUserId) {
             // Lock the QueueTicket row to prevent concurrent completion/progression
             $ticket = QueueTicket::with([
-                'visitWorkflowStep.visit', 'visitWorkflowStep.workflowStep.station'
+                'visitWorkflowStep.visit', 'visitWorkflowStep.workflowStep.station',
             ])
                 ->whereKey($ticketId)
                 ->lockForUpdate()
@@ -159,8 +158,7 @@ class QueueService
      *   CALLED → ON_HOLD
      *   IN_PROGRESS → ON_HOLD
      *
-     * @param int $ticketId
-     * @param int|null $heldByUserId Optional user ID who placed on hold
+     * @param  int|null  $heldByUserId  Optional user ID who placed on hold
      * @return bool True if held, false if invalid
      */
     public function holdTicket(int $ticketId, ?int $heldByUserId = null): bool
@@ -171,9 +169,9 @@ class QueueService
                 ->firstOrFail();
 
             if (! in_array($ticket->status->value, [
-                    QueueStatus::CALLED->value,
-                    QueueStatus::IN_PROGRESS->value,
-                ])) {
+                QueueStatus::CALLED->value,
+                QueueStatus::IN_PROGRESS->value,
+            ])) {
                 return false;
             }
 
@@ -187,8 +185,7 @@ class QueueService
      * Required transition:
      *   ON_HOLD → CALLED
      *
-     * @param int $ticketId
-     * @param int|null $resumedByUserId Optional user ID who resumed the ticket
+     * @param  int|null  $resumedByUserId  Optional user ID who resumed the ticket
      * @return bool True if resumed, false if invalid
      */
     public function resumeTicket(int $ticketId, ?int $resumedByUserId = null): bool
@@ -217,9 +214,8 @@ class QueueService
      *   IN_PROGRESS → SKIPPED
      *   ON_HOLD → SKIPPED
      *
-     * @param int $ticketId
-     * @param int|null $skippedByUserId Optional user ID who skipped the ticket
-     * @param string|null $reason Optional reason for skipping
+     * @param  int|null  $skippedByUserId  Optional user ID who skipped the ticket
+     * @param  string|null  $reason  Optional reason for skipping
      * @return bool True if skipped, false if invalid
      */
     public function skipTicket(int $ticketId, ?int $skippedByUserId = null, ?string $reason = null): bool
@@ -241,7 +237,7 @@ class QueueService
             if ($result && $reason) {
                 // Add skip reason to notes
                 $ticket->update([
-                    'notes' => $reason . (($ticket->notes) ? " | {$ticket->notes}" : ''),
+                    'notes' => $reason.(($ticket->notes) ? " | {$ticket->notes}" : ''),
                 ]);
             }
 
@@ -254,8 +250,7 @@ class QueueService
      *
      * Valid transitions from any active state to CANCELLED.
      *
-     * @param int $ticketId
-     * @param int|null $cancelledByUserId Optional user ID who cancelled the ticket
+     * @param  int|null  $cancelledByUserId  Optional user ID who cancelled the ticket
      * @return bool True if cancelled, false if invalid
      */
     public function cancelTicket(int $ticketId, ?int $cancelledByUserId = null): bool
@@ -267,11 +262,11 @@ class QueueService
 
             // Cannot cancel completed/skipped/etc. tickets
             if (! in_array($ticket->status->value, [
-                    QueueStatus::CREATED->value,
-                    QueueStatus::CALLED->value,
-                    QueueStatus::IN_PROGRESS->value,
-                    QueueStatus::ON_HOLD->value,
-                ])) {
+                QueueStatus::CREATED->value,
+                QueueStatus::CALLED->value,
+                QueueStatus::IN_PROGRESS->value,
+                QueueStatus::ON_HOLD->value,
+            ])) {
                 return false;
             }
 
@@ -292,9 +287,8 @@ class QueueService
      *   ↓
      *   Patient joins destination queue
      *
-     * @param int $ticketId
-     * @param int $targetStationId ID of the station to transfer to
-     * @param int|null $transferredByUserId Optional user ID who initiated transfer
+     * @param  int  $targetStationId  ID of the station to transfer to
+     * @param  int|null  $transferredByUserId  Optional user ID who initiated transfer
      * @return array ['original' => QueueTicket, 'new' => QueueTicket]
      *
      * @throws \LogicException If transfer is invalid
@@ -307,7 +301,7 @@ class QueueService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $targetStation = \App\Models\Station::findOrFail($targetStationId);
+            $targetStation = Station::findOrFail($targetStationId);
 
             // Transfer only valid within the same workflow step
             $currentStep = $ticket->visitWorkflowStep->workflowStep;
@@ -325,7 +319,7 @@ class QueueService
 
             // 2. Create new queue ticket at target station
             // Reuse the same visit_workflow_step (same workflow step execution)
-            $allocation = (new QueueNumberGenerator())->allocate($targetStation);
+            $allocation = (new QueueNumberGenerator)->allocate($targetStation);
             $newTicket = QueueTicket::create([
                 'visit_id' => $ticket->visit_id,
                 'visit_workflow_step_id' => $ticket->visit_workflow_step_id,
@@ -340,7 +334,7 @@ class QueueService
 
             // 3. Log creation event on new ticket (original transition event handled by QueueStateMachine::apply)
             $newTicket->events()->create([
-                'event_type' => \App\Enums\QueueEventType::CREATED,
+                'event_type' => QueueEventType::CREATED,
                 'from_status' => null,
                 'to_status' => QueueStatus::CREATED->value,
                 'user_id' => $transferredByUserId,

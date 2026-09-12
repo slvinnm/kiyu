@@ -2,9 +2,9 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use App\Models\Station;
 use App\Enums\StationType;
+use App\Models\Station;
+use Illuminate\Database\Seeder;
 
 class StationSeeder extends Seeder
 {

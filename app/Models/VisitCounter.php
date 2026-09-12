@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 
 class VisitCounter extends Model
@@ -20,6 +19,7 @@ class VisitCounter extends Model
     public function scopeTodayCounter($query)
     {
         $date = now()->format('Y-m-d');
+
         return $query->where('counter_date', $date);
     }
 

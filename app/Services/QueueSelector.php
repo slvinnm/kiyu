@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Enums\QueueStatus;
 use App\Models\QueueTicket;
 use App\Models\Station;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Collection;
 
 class QueueSelector
 {
@@ -23,7 +23,7 @@ class QueueSelector
         return $ticket;
     }
 
-    public function selectForStation(Station $station, ?int $limit = 20): \Illuminate\Database\Eloquent\Collection
+    public function selectForStation(Station $station, ?int $limit = 20): Collection
     {
         return QueueTicket::where('station_id', $station->id)
             ->whereIn('status', [

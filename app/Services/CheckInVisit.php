@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\VisitStatus;
 use App\Models\Visit;
-use App\Models\QueueTicket;
 use Illuminate\Support\Facades\DB;
 
 class CheckInVisit
@@ -21,9 +20,6 @@ class CheckInVisit
      *
      * For kiosk/walk-in visits:
      *   - Initial queue behavior follows the configured workflow
-     *
-     * @param int $visitId
-     * @return Visit
      */
     public function handle(int $visitId): Visit
     {
@@ -33,7 +29,7 @@ class CheckInVisit
 
             // 2. Validate current state
             if ($visit->status !== VisitStatus::AWAITING_CHECKIN) {
-                throw new \LogicException("Visit must be in AWAITING_CHECKIN state to check in. Current: " . ($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status));
+                throw new \LogicException('Visit must be in AWAITING_CHECKIN state to check in. Current: '.($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status));
             }
 
             // 3. Transition to CHECKED_IN
