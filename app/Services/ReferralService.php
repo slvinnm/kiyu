@@ -10,6 +10,7 @@ use App\Models\Department;
 use App\Models\Referral;
 use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ReferralService
 {
@@ -20,24 +21,36 @@ class ReferralService
         int $targetDepartmentId,
         ?int $referredByUserId = null,
         ?string $reason = null,
-        ?Priority $priority = null
+        ?Priority $priority = null,
     ): Referral {
         return DB::transaction(function () use ($sourceVisitId, $targetDepartmentId, $referredByUserId, $reason, $priority) {
-            $sourceVisit = Visit::query()->whereKey($sourceVisitId)->lockForUpdate()->firstOrFail();
+            $sourceVisit = Visit::query()
+                ->whereKey($sourceVisitId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($sourceVisit->patient_id === null) {
+                throw ValidationException::withMessages([
+                    'visit' => 'A referral requires a registered patient.',
+                ]);
+            }
+
             $targetDepartment = Department::query()
                 ->whereKey($targetDepartmentId)
                 ->where('is_active', true)
                 ->firstOrFail();
 
             if ($sourceVisit->department_id === $targetDepartment->id) {
-                throw new \LogicException('Referral target must be a different department.');
+                throw ValidationException::withMessages([
+                    'target_department_id' => 'Referral target must be a different department.',
+                ]);
             }
 
             $targetVisit = $this->createVisit->handle(
-                $sourceVisit->patient_id,
-                $targetDepartment->code,
-                IntakeChannel::WALK_IN,
-                $priority instanceof Priority ? $priority->value : $sourceVisit->priority->value,
+                patientId: $sourceVisit->patient_id,
+                departmentCode: $targetDepartment->code,
+                intakeChannel: IntakeChannel::WALK_IN,
+                priority: $priority?->value ?? $sourceVisit->priority->value,
             );
 
             $referral = Referral::create([
@@ -61,7 +74,11 @@ class ReferralService
                 ],
             ]);
 
-            return $referral->fresh(['targetVisit.queueTickets']);
+            return $referral->fresh([
+                'sourceVisit.department',
+                'targetDepartment',
+                'targetVisit.queueTickets',
+            ]);
         });
     }
 }

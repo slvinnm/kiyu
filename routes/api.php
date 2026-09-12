@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\KioskController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\ReceptionController;
+use App\Http\Controllers\Api\ReferralController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -31,6 +32,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/tickets/{queueTicket}/no-show', [QueueController::class, 'noShow']);
             Route::post('/tickets/{queueTicket}/cancel', [QueueController::class, 'cancel']);
             Route::post('/tickets/{queueTicket}/transfer', [QueueController::class, 'transfer']);
+        });
+
+        Route::prefix('referrals')->group(function () {
+            Route::post('/visits/{visit}', [ReferralController::class, 'store']);
+            Route::get('/{referral}', [ReferralController::class, 'show']);
         });
 
         Route::get('/user', function (Request $request) {
