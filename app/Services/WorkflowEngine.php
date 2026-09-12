@@ -24,9 +24,12 @@ class WorkflowEngine
         $this->requirementEvaluator ??= new WorkflowRequirementEvaluator;
     }
 
-    public function createFromIntake(Visit $visit, int $initialStepSequence): ?QueueTicket
-    {
-        return DB::transaction(function () use ($visit, $initialStepSequence) {
+    public function createFromIntake(
+        Visit $visit,
+        int $initialStepSequence,
+        array $context = [],
+    ): ?QueueTicket {
+        return DB::transaction(function () use ($visit, $initialStepSequence, $context) {
             $lockedVisit = Visit::query()
                 ->whereKey($visit->id)
                 ->lockForUpdate()
@@ -50,7 +53,6 @@ class WorkflowEngine
                 'status' => VisitWorkflowStatus::ACTIVE->value,
             ]);
 
-            // Repeated intake requests must return the existing initial ticket/step.
             $existingInitialStep = VisitWorkflowStep::query()
                 ->where('visit_workflow_id', $visitWorkflow->id)
                 ->where('workflow_step_id', $initialStep->id)
@@ -68,7 +70,7 @@ class WorkflowEngine
                 visit: $lockedVisit,
                 visitWorkflow: $visitWorkflow,
                 fromSequence: $initialStep->sequence,
-                context: $this->baseContext($lockedVisit),
+                context: $this->mergeContext($this->baseContext($lockedVisit), $context),
             );
         });
     }
@@ -115,7 +117,6 @@ class WorkflowEngine
                 visit: $visit,
                 visitWorkflow: $visitWorkflow,
                 workflowStep: $workflowStep,
-                context: $evaluationContext,
             );
 
             $visit->update(['status' => VisitStatus::WAITING->value]);
@@ -257,14 +258,8 @@ class WorkflowEngine
 
         foreach ($steps as $workflowStep) {
             if (! $this->isStepApplicable($workflowStep, $context)) {
-                if ($workflowStep->is_optional || $workflowStep->entry_conditions !== null) {
-                    $this->createSkippedStep($visitWorkflow, $workflowStep);
-                    continue;
-                }
-
-                throw ValidationException::withMessages([
-                    'workflow' => "Required workflow step '{$workflowStep->name}' is not applicable under the current workflow context.",
-                ]);
+                $this->createSkippedStep($visitWorkflow, $workflowStep);
+                continue;
             }
 
             if (! $workflowStep->requires_queue) {
@@ -272,7 +267,6 @@ class WorkflowEngine
                     visit: $visit,
                     visitWorkflow: $visitWorkflow,
                     workflowStep: $workflowStep,
-                    context: $context,
                     createQueue: false,
                 );
 
@@ -302,7 +296,6 @@ class WorkflowEngine
                 visit: $visit,
                 visitWorkflow: $visitWorkflow,
                 workflowStep: $workflowStep,
-                context: $context,
             );
         }
 
@@ -318,7 +311,6 @@ class WorkflowEngine
         Visit $visit,
         VisitWorkflow $visitWorkflow,
         WorkflowStep $workflowStep,
-        array $context = [],
         bool $createQueue = true,
     ): ?QueueTicket {
         if ($workflowStep->requires_queue && ! $workflowStep->station) {
