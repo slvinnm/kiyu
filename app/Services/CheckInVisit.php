@@ -3,50 +3,71 @@
 namespace App\Services;
 
 use App\Enums\VisitStatus;
+use App\Models\AuditLog;
 use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
 
 class CheckInVisit
 {
     /**
-     * Check in a visit for physical presence.
+     * Check in an online visit for physical presence.
      *
-     * Required lifecycle:
-     *   AWAITING_CHECKIN → CHECKED_IN → WAITING
+     * Lifecycle:
+     * AWAITING_CHECKIN -> CHECKED_IN -> WAITING
      *
-     * For online visits:
-     *   - Existing queue ticket must be reused
-     *   - Physical check-in must NOT create another registration ticket
-     *
-     * For kiosk/walk-in visits:
-     *   - Initial queue behavior follows the configured workflow
+     * The registration queue is created during registration and is reused.
+     * Check-in never creates a second registration ticket.
      */
-    public function handle(int $visitId): Visit
+    public function handle(int $visitId, ?int $userId = null): Visit
     {
-        return DB::transaction(function () use ($visitId) {
-            // 1. Find visit with relationships
+        return DB::transaction(function () use ($visitId, $userId) {
             $visit = Visit::query()
                 ->whereKey($visitId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // 2. Validate current state
             if ($visit->status !== VisitStatus::AWAITING_CHECKIN) {
-                throw new \LogicException('Visit must be in AWAITING_CHECKIN state to check in. Current: '.($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status));
+                throw new \LogicException(
+                    'Visit must be in AWAITING_CHECKIN state to check in. Current: '.
+                    ($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status)
+                );
             }
 
-            // 3. Transition to WAITING. The physical check-in itself is
-            // represented by checked_in_at; the visit is now eligible to wait.
+            $checkedInAt = now();
+
+            // Persist the explicit lifecycle transition before entering the queue.
             $visit->update([
-                'status' => VisitStatus::WAITING->value,
-                'checked_in_at' => now(),
+                'status' => VisitStatus::CHECKED_IN->value,
+                'checked_in_at' => $checkedInAt,
             ]);
 
-            // 4. For online visits, ensure we don't create duplicate registration ticket
-            // The initial queue ticket should already exist from online registration
-            // No action needed here - the ticket exists and will be progressed normally
+            AuditLog::create([
+                'user_id' => $userId,
+                'action' => 'VISIT_CHECKED_IN',
+                'auditable_type' => Visit::class,
+                'auditable_id' => $visit->id,
+                'new_values' => [
+                    'status' => VisitStatus::CHECKED_IN->value,
+                    'checked_in_at' => $checkedInAt->toDateTimeString(),
+                ],
+            ]);
 
-            // 5. Return refreshed visit
+            // The queue ticket already exists for online registration. Do not allocate
+            // another ticket here.
+            $visit->update([
+                'status' => VisitStatus::WAITING->value,
+            ]);
+
+            AuditLog::create([
+                'user_id' => $userId,
+                'action' => 'VISIT_WAITING_AFTER_CHECKIN',
+                'auditable_type' => Visit::class,
+                'auditable_id' => $visit->id,
+                'new_values' => [
+                    'status' => VisitStatus::WAITING->value,
+                ],
+            ]);
+
             return $visit->fresh();
         });
     }
