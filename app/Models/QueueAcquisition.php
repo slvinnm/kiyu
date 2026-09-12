@@ -16,14 +16,18 @@ class QueueAcquisition extends Model
         'department_id',
         'visit_id',
         'channel',
+        'idempotency_key',
         'status',
+        'registered_by',
         'acquired_at',
+        'registered_at',
     ];
 
     protected $casts = [
         'channel' => IntakeChannel::class,
         'status' => QueueAcquisitionStatus::class,
         'acquired_at' => 'datetime',
+        'registered_at' => 'datetime',
     ];
 
     public function department(): BelongsTo
@@ -34,5 +38,10 @@ class QueueAcquisition extends Model
     public function visit(): BelongsTo
     {
         return $this->belongsTo(Visit::class);
+    }
+
+    public function registeredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'registered_by');
     }
 }
