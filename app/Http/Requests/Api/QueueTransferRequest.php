@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests\Api;
 
-use App\Models\Station;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
