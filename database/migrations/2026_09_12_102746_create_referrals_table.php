@@ -20,12 +20,14 @@ return new class extends Migration
             $table->foreignId('target_visit_id')->nullable()->constrained('visits')->nullOnDelete();
             $table->foreignId('referred_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('status')->default('PENDING'); // PENDING, ACCEPTED, REJECTED, COMPLETED
+            $table->unsignedInteger('priority')->nullable();
             $table->text('reason')->nullable();
             $table->timestamps();
 
             $table->index('source_visit_id');
             $table->index('target_department_id');
             $table->index('status');
+            $table->unique(['source_visit_id', 'target_visit_id', 'status'], 'referrals_source_target_visit_status_unique');
         });
     }
 

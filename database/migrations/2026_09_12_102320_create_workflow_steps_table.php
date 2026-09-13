@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('workflow_steps', function (Blueprint $table) {
             $table->id();
             $table->foreignId('workflow_version_id')->constrained()->restrictOnDelete();
-            $table->foreignId('station_id')->constrained()->restrictOnDelete();
+            $table->foreignId('station_id')->nullable()->constrained()->restrictOnDelete();
             $table->string('name');
             $table->unsignedInteger('sequence');
             $table->boolean('requires_queue')->default(true);

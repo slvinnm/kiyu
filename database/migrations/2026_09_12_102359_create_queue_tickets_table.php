@@ -34,6 +34,7 @@ return new class extends Migration
             $table->index('status');
             $table->index('queue_number');
             $table->index(['station_id', 'status', 'priority', 'internal_sequence']);
+            $table->index(['station_id', 'status', 'created_at']);
         });
     }
 
