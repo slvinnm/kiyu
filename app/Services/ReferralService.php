@@ -9,6 +9,7 @@ use App\Enums\ReferralStatus;
 use App\Enums\VisitStatus;
 use App\Models\AuditLog;
 use App\Models\Department;
+use App\Models\Patient;
 use App\Models\Referral;
 use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +47,11 @@ class ReferralService
                     'visit' => 'Only active visits can be referred.',
                 ]);
             }
+
+            Patient::query()
+                ->whereKey($sourceVisit->patient_id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             $targetDepartment = Department::query()
                 ->whereKey($targetDepartmentId)
