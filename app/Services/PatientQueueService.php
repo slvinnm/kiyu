@@ -41,8 +41,15 @@ class PatientQueueService
             return null;
         }
 
+        $queueDate = $ticket->created_at?->toDateString();
+
+        if (! $queueDate) {
+            return null;
+        }
+
         return QueueTicket::query()
             ->where('station_id', $ticket->station_id)
+            ->whereDate('created_at', $queueDate)
             ->where('status', QueueStatus::CREATED->value)
             ->where(function ($query) use ($ticket) {
                 $query
