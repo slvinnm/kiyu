@@ -29,19 +29,19 @@ class PublicQueueDisplayService
             ->get();
 
         $current = $tickets
-            ->whereIn('status', [
+            ->filter(fn(QueueTicket $ticket): bool => in_array($ticket->status->value, [
                 QueueStatus::IN_PROGRESS->value,
                 QueueStatus::CALLED->value,
-            ])
+            ], true))
             ->sortByDesc(
-                fn (QueueTicket $ticket): int => $ticket->started_at?->getTimestamp()
+                fn(QueueTicket $ticket): int => $ticket->started_at?->getTimestamp()
                     ?? $ticket->called_at?->getTimestamp()
                     ?? 0,
             )
             ->first();
 
         $upcoming = $tickets
-            ->where('status', QueueStatus::CREATED->value)
+            ->filter(fn(QueueTicket $ticket): bool => $ticket->status->value === QueueStatus::CREATED->value)
             ->sort(function (QueueTicket $left, QueueTicket $right): int {
                 if ($left->priority->value !== $right->priority->value) {
                     return $right->priority->value <=> $left->priority->value;

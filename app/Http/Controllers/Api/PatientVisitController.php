@@ -10,6 +10,7 @@ use App\Models\Visit;
 use App\Services\CheckInOnlineVisit;
 use App\Services\PatientQueueService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class PatientVisitController extends Controller
 {
