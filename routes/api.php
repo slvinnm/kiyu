@@ -26,6 +26,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/me', [PatientAuthController::class, 'me']);
             Route::get('/visits', [PatientVisitController::class, 'index']);
             Route::get('/visits/{visit}', [PatientVisitController::class, 'show']);
+            Route::get('/queue', [PatientVisitController::class, 'queue']);
             Route::post('/visits/{visit}/check-in', [PatientVisitController::class, 'checkIn']);
         });
 
