@@ -3,6 +3,7 @@
 use App\Enums\UserRole;
 use App\Models\Patient;
 use App\Models\QueueTicket;
+use App\Models\Referral;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\Visit;
@@ -10,7 +11,6 @@ use App\Policies\QueueTicketPolicy;
 use App\Policies\ReferralPolicy;
 use App\Policies\StationPolicy;
 use App\Policies\VisitPolicy;
-use Illuminate\Testing\TestResponse;
 
 it('denies patient access to internal station endpoints', function (): void {
     $patient = User::factory()->create([
@@ -100,7 +100,7 @@ it('keeps patient visit authorization owned by the authenticated patient', funct
 it('keeps referral viewing restricted to the related departments', function (): void {
     $policy = new ReferralPolicy;
     $sourceVisit = new Visit(['department_id' => 10]);
-    $referral = new \App\Models\Referral([
+    $referral = new Referral([
         'target_department_id' => 20,
     ]);
     $referral->setRelation('sourceVisit', $sourceVisit);

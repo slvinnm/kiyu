@@ -12,6 +12,7 @@ use App\Models\Visit;
 use App\Models\Workflow;
 use App\Models\WorkflowVersion;
 use App\Services\UpdateVisitPriority;
+use Illuminate\Validation\ValidationException;
 
 function priorityFixture(): array
 {
@@ -88,5 +89,5 @@ it('rejects staff from another department', function () {
         visit: $fixture['visit'],
         priority: Priority::PRIORITY,
         user: $user,
-    ))->toThrow(\Illuminate\Validation\ValidationException::class);
+    ))->toThrow(ValidationException::class);
 });

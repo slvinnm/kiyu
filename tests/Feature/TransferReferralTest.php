@@ -8,6 +8,7 @@ use App\Enums\VisitStatus;
 use App\Models\Department;
 use App\Models\Patient;
 use App\Models\Station;
+use App\Models\Visit;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
 use App\Models\WorkflowVersion;
@@ -89,7 +90,7 @@ function transferReferralFixture(): array
     );
 }
 
-function createTransferReferralVisit(array $fixture): \App\Models\Visit
+function createTransferReferralVisit(array $fixture): Visit
 {
     return app(CreateVisit::class)->handle(
         patientId: $fixture['patient']->id,
@@ -122,7 +123,7 @@ it('rejects transfer to a station outside the current workflow step', function (
     expect(fn () => app(QueueService::class)->transferTicket(
         ticketId: $ticket->id,
         targetStationId: $fixture['unrelatedStation']->id,
-    ))->toThrow(\LogicException::class, 'Transfer target station is not allowed for this workflow step.');
+    ))->toThrow(LogicException::class, 'Transfer target station is not allowed for this workflow step.');
 
     expect($ticket->fresh()->status)->toBe(QueueStatus::CREATED);
 });
@@ -180,7 +181,7 @@ it('joins an existing target visit when creating a referral', function () {
     );
 
     expect($referral->target_visit_id)->toBe($targetVisit->id);
-    expect(\App\Models\Visit::query()->where('patient_id', $fixture['patient']->id)->where('department_id', $targetDepartment->id)->count())
+    expect(Visit::query()->where('patient_id', $fixture['patient']->id)->where('department_id', $targetDepartment->id)->count())
         ->toBe(1);
     expect($targetVisit->fresh()->priority)->toBe(Priority::PRIORITY);
     expect($targetVisit->queueTickets()->sole()->priority)->toBe(Priority::PRIORITY);
