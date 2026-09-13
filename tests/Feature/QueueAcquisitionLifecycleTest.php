@@ -14,6 +14,7 @@ use App\Models\Workflow;
 use App\Models\WorkflowStep;
 use App\Models\WorkflowVersion;
 use App\Services\QueueAcquisitionService;
+use App\Services\QueueService;
 use Illuminate\Validation\ValidationException;
 
 function kioskCancellationFixture(): array
@@ -106,7 +107,7 @@ it('does not allow cancellation after the queue has progressed', function () {
     $acquisition = $service->acquire($fixture['department']->code);
     $ticket = $acquisition->visit->queueTickets()->sole();
 
-    $queue = app(\App\Services\QueueService::class);
+    $queue = app(QueueService::class);
     $queue->callNext($fixture['station']->id);
     $queue->startTicket($ticket->id);
 
