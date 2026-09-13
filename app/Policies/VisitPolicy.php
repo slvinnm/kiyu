@@ -21,4 +21,16 @@ class VisitPolicy
     {
         return $this->view($user, $visit);
     }
+
+    public function setPriority(User $user, Visit $visit): bool
+    {
+        if ($user->role === UserRole::ADMIN) {
+            return true;
+        }
+
+        return in_array($user->role, [
+            UserRole::DOCTOR,
+            UserRole::NURSE,
+        ], true) && $user->department_id === $visit->department_id;
+    }
 }
