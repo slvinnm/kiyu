@@ -22,6 +22,7 @@ return new class extends Migration
             $table->boolean('is_repeatable')->default(false);
             $table->boolean('can_skip')->default(false);
             $table->json('completion_requirements')->nullable();
+            $table->json('entry_conditions')->nullable();
             $table->timestamps();
 
             $table->unique(['workflow_version_id', 'sequence']);

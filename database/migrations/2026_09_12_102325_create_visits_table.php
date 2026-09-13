@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('visits', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('patient_id')->constrained()->restrictOnDelete();
+            $table->foreignId('patient_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('department_id')->constrained()->restrictOnDelete();
             $table->foreignId('workflow_version_id')->constrained()->restrictOnDelete();
             $table->string('visit_number')->unique();

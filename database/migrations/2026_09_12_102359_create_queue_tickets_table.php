@@ -24,8 +24,8 @@ return new class extends Migration
             $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->foreignId('assigned_to')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('transfer_to_station_id')->nullable(); // for transfer tracking
-            $table->string('transfer_target_station_id')->nullable();
+            $table->foreignId('transferred_from_ticket_id')->nullable()->constrained('queue_tickets')->nullOnDelete();
+            $table->foreignId('transferred_to_station_id')->nullable()->constrained('stations')->nullOnDelete();
             $table->text('notes')->nullable();
             $table->timestamps();
 
