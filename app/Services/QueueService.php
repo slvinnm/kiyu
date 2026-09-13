@@ -23,11 +23,7 @@ class QueueService
         ?QueueStateMachine $stateMachine = null,
         ?QueueSelector $selector = null,
         ?WorkflowEngine $workflowEngine = null
-    ) {
-        $this->stateMachine = $stateMachine ?? new QueueStateMachine;
-        $this->selector = $selector ?? new QueueSelector;
-        $this->workflowEngine = $workflowEngine ?? new WorkflowEngine;
-    }
+    ) {}
 
     public function callNext(int $stationId, ?int $calledByUserId = null): ?QueueTicket
     {
@@ -36,6 +32,20 @@ class QueueService
                 ->whereKey($stationId)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $hasActiveTicket = QueueTicket::query()
+                ->where('station_id', $station->id)
+                ->whereIn('status', [
+                    QueueStatus::CALLED->value,
+                    QueueStatus::IN_PROGRESS->value,
+                ])
+                ->exists();
+
+            if ($hasActiveTicket) {
+                throw ValidationException::withMessages([
+                    'station' => 'The station already has an active queue ticket.',
+                ]);
+            }
 
             $ticket = $this->selector->callNext($station);
 
