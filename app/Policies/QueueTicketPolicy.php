@@ -4,28 +4,23 @@ namespace App\Policies;
 
 use App\Enums\UserRole;
 use App\Models\QueueTicket;
+use App\Models\Station;
 use App\Models\User;
 
 class QueueTicketPolicy
 {
     public function view(User $user, QueueTicket $ticket): bool
     {
-        if ($user->role === UserRole::ADMIN) {
-            return true;
+        $station = $ticket->relationLoaded('station')
+            ? $ticket->station
+            : Station::query()->find($ticket->station_id);
+
+        if (! $station instanceof Station) {
+            return $user->role !== UserRole::PATIENT
+                && $user->station_id === $ticket->station_id;
         }
 
-        if (! in_array($user->role, [
-            UserRole::RECEPTIONIST,
-            UserRole::NURSE,
-            UserRole::DOCTOR,
-            UserRole::PHARMACY,
-            UserRole::LAB,
-            UserRole::STAFF,
-        ], true)) {
-            return false;
-        }
-
-        return $user->station_id === $ticket->station_id;
+        return app(StationPolicy::class)->canOperate($user, $station);
     }
 
     public function manage(User $user, QueueTicket $ticket): bool

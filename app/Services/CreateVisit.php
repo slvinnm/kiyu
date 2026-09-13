@@ -14,9 +14,15 @@ use Illuminate\Support\Facades\DB;
 
 class CreateVisit
 {
-    public function handle(int $patientId, string $departmentCode, IntakeChannel $intakeChannel, ?int $priority = null): Visit
-    {
-        return DB::transaction(function () use ($patientId, $departmentCode, $intakeChannel, $priority) {
+    public function handle(
+        int $patientId,
+        string $departmentCode,
+        IntakeChannel $intakeChannel,
+        ?int $priority = null,
+        ?int $registeredByUserId = null,
+        ?string $onlineActiveKey = null,
+    ): Visit {
+        return DB::transaction(function () use ($patientId, $departmentCode, $intakeChannel, $priority, $registeredByUserId, $onlineActiveKey) {
             $patient = Patient::findOrFail($patientId);
             $department = Department::where('code', $departmentCode)->where('is_active', true)->firstOrFail();
 
@@ -57,6 +63,8 @@ class CreateVisit
                 'priority' => $visitPriority,
                 'intake_channel' => $intakeChannel->value,
                 'status' => $this->resolveInitialStatus($intakeChannel),
+                'registered_by' => $registeredByUserId,
+                'online_active_key' => $onlineActiveKey,
             ]);
 
             $initialTicket = app(WorkflowEngine::class)->createFromIntake($visit, $firstStep->sequence);

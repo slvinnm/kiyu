@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\QueueEventType;
 use App\Enums\QueueStatus;
 use App\Enums\VisitStatus;
+use App\Enums\VisitWorkflowStatus;
 use App\Enums\VisitWorkflowStepStatus;
 use App\Models\QueueTicket;
 use App\Models\Station;
@@ -233,7 +234,13 @@ class QueueService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            return $this->stateMachine->apply($ticket, QueueStatus::NO_SHOW, $markedByUserId);
+            $updated = $this->stateMachine->apply($ticket, QueueStatus::NO_SHOW, $markedByUserId);
+
+            if ($updated) {
+                $this->terminateTicketRuntime($ticket);
+            }
+
+            return $updated;
         });
     }
 
@@ -253,8 +260,52 @@ class QueueService
                 return false;
             }
 
-            return $this->stateMachine->apply($ticket, QueueStatus::CANCELLED, $cancelledByUserId);
+            $updated = $this->stateMachine->apply($ticket, QueueStatus::CANCELLED, $cancelledByUserId);
+
+            if ($updated) {
+                $this->terminateTicketRuntime($ticket);
+            }
+
+            return $updated;
         });
+    }
+
+    private function terminateTicketRuntime(QueueTicket $ticket): void
+    {
+        $runtimeStep = $ticket->visitWorkflowStep()
+            ->lockForUpdate()
+            ->firstOrFail();
+        $visitWorkflow = $runtimeStep->visitWorkflow()
+            ->lockForUpdate()
+            ->firstOrFail();
+        $visit = $visitWorkflow->visit()
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $runtimeStep->update([
+            'status' => VisitWorkflowStepStatus::CANCELLED->value,
+            'completed_at' => now(),
+        ]);
+
+        $visitWorkflow->update([
+            'status' => VisitWorkflowStatus::CANCELLED->value,
+        ]);
+
+        $visitWorkflow->steps()
+            ->whereIn('status', [
+                VisitWorkflowStepStatus::PENDING->value,
+                VisitWorkflowStepStatus::IN_PROGRESS->value,
+            ])
+            ->where('id', '!=', $runtimeStep->id)
+            ->update([
+                'status' => VisitWorkflowStepStatus::CANCELLED->value,
+                'completed_at' => now(),
+            ]);
+
+        $visit->update([
+            'status' => VisitStatus::CANCELLED->value,
+            'online_active_key' => null,
+        ]);
     }
 
     public function transferTicket(int $ticketId, int $targetStationId, ?int $transferredByUserId = null): array

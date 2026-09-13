@@ -193,7 +193,7 @@ class WorkflowEngine
 
         if ($reason) {
             $ticket->update([
-                'notes' => $reason.($ticket->notes ? " | {$ticket->notes}" : ''),
+                'notes' => $reason . ($ticket->notes ? " | {$ticket->notes}" : ''),
             ]);
         }
 
@@ -401,6 +401,7 @@ class WorkflowEngine
         $visit->update([
             'status' => VisitStatus::COMPLETED->value,
             'completed_at' => now(),
+            'online_active_key' => null,
         ]);
 
         $visitWorkflow->update([

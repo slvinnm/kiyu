@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\QueueStatus;
+use App\Enums\VisitStatus;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use Illuminate\Database\Eloquent\Collection;
@@ -15,6 +16,9 @@ class QueueSelector
         // and performs the CREATED → CALLED transition while the lock is held.
         $ticket = QueueTicket::where('station_id', $station->id)
             ->where('status', QueueStatus::CREATED->value)
+            ->whereHas('visit', function ($query): void {
+                $query->where('status', VisitStatus::WAITING->value);
+            })
             ->orderByDesc('priority')
             ->orderBy('internal_sequence', 'asc')
             ->lockForUpdate()
@@ -26,6 +30,9 @@ class QueueSelector
     public function selectForStation(Station $station, ?int $limit = 20): Collection
     {
         return QueueTicket::where('station_id', $station->id)
+            ->whereHas('visit', function ($query): void {
+                $query->where('status', VisitStatus::WAITING->value);
+            })
             ->whereIn('status', [
                 QueueStatus::CREATED->value,
                 QueueStatus::CALLED->value,

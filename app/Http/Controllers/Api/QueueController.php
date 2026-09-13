@@ -32,6 +32,7 @@ class QueueController extends Controller
             ->orderBy('name');
 
         if ($user->role !== UserRole::ADMIN) {
+            abort_unless($user->station && $user->can('view', $user->station), 403);
             $query->whereKey($user->station_id);
         }
 
@@ -201,6 +202,9 @@ class QueueController extends Controller
         QueueTicket $queueTicket,
     ): JsonResponse {
         $request->user()->can('manage', $queueTicket) || abort(403);
+
+        $targetStation = Station::query()->findOrFail($request->integer('target_station_id'));
+        $request->user()->can('view', $targetStation) || abort(403);
 
         $result = $this->queueService->transferTicket(
             ticketId: $queueTicket->id,

@@ -22,6 +22,7 @@ class QueueStateMachine
             QueueStatus::ON_HOLD->value,
             QueueStatus::SKIPPED->value,
             QueueStatus::CANCELLED->value,
+            QueueStatus::NO_SHOW->value,
             QueueStatus::TRANSFERRED->value,
         ],
         QueueStatus::IN_PROGRESS->value => [
@@ -29,11 +30,13 @@ class QueueStateMachine
             QueueStatus::ON_HOLD->value,
             QueueStatus::SKIPPED->value,
             QueueStatus::CANCELLED->value,
+            QueueStatus::NO_SHOW->value,
             QueueStatus::TRANSFERRED->value,
         ],
         QueueStatus::ON_HOLD->value => [
             QueueStatus::CALLED->value,
             QueueStatus::CANCELLED->value,
+            QueueStatus::NO_SHOW->value,
         ],
         QueueStatus::COMPLETED->value => [],
         QueueStatus::SKIPPED->value => [

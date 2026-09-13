@@ -3,6 +3,7 @@
 use App\Enums\IntakeChannel;
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Services\QueueService;
 use Tests\Support\ApiScenario;
 
 it('creates an online visit and prevents duplicate active visits', function (): void {
@@ -19,6 +20,19 @@ it('creates an online visit and prevents duplicate active visits', function (): 
     $this->postJson('/api/v1/online/visits', ['department_code' => 'ONLINE-VISIT'])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['department_code']);
+});
+
+it('does not call an online ticket before physical check-in', function (): void {
+    $department = ApiScenario::department('ONLINE-GATING');
+    $station = ApiScenario::station($department, 'ONLINE-GATING-REG');
+    ApiScenario::workflow($department, [$station]);
+    $account = ApiScenario::patientAccount();
+
+    $this->actingAs($account['user'], 'sanctum')
+        ->postJson('/api/v1/online/visits', ['department_code' => $department->code])
+        ->assertCreated();
+
+    expect(app(QueueService::class)->callNext($station->id))->toBeNull();
 });
 
 it('lists and returns only the authenticated patient visits', function (): void {
@@ -57,9 +71,9 @@ it('returns active queue tickets and checks in an online visit', function (): vo
 
     $this->postJson('/api/v1/patient/visits/' . $onlineVisit->id . '/check-in')
         ->assertOk()
-        ->assertJsonPath('data.status', 'CHECKED_IN');
+        ->assertJsonPath('data.status', 'WAITING');
 
-    expect($onlineVisit->fresh()->status->value)->toBe('CHECKED_IN');
+    expect($onlineVisit->fresh()->status->value)->toBe('WAITING');
 });
 
 it('rejects patient-only endpoints for staff users', function (): void {

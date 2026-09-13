@@ -28,8 +28,8 @@ class CheckInVisit
 
             if ($visit->status !== VisitStatus::AWAITING_CHECKIN) {
                 throw new \LogicException(
-                    'Visit must be in AWAITING_CHECKIN state to check in. Current: '.
-                    ($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status)
+                    'Visit must be in AWAITING_CHECKIN state to check in. Current: ' .
+                        ($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status)
                 );
             }
 
@@ -37,7 +37,7 @@ class CheckInVisit
 
             // Persist the explicit lifecycle transition before entering the queue.
             $visit->update([
-                'status' => VisitStatus::CHECKED_IN->value,
+                'status' => VisitStatus::WAITING->value,
                 'checked_in_at' => $checkedInAt,
             ]);
 
@@ -47,24 +47,8 @@ class CheckInVisit
                 'auditable_type' => Visit::class,
                 'auditable_id' => $visit->id,
                 'new_values' => [
-                    'status' => VisitStatus::CHECKED_IN->value,
-                    'checked_in_at' => $checkedInAt->toDateTimeString(),
-                ],
-            ]);
-
-            // The queue ticket already exists for online registration. Do not allocate
-            // another ticket here.
-            $visit->update([
-                'status' => VisitStatus::WAITING->value,
-            ]);
-
-            AuditLog::create([
-                'user_id' => $userId,
-                'action' => 'VISIT_WAITING_AFTER_CHECKIN',
-                'auditable_type' => Visit::class,
-                'auditable_id' => $visit->id,
-                'new_values' => [
                     'status' => VisitStatus::WAITING->value,
+                    'checked_in_at' => $checkedInAt->toDateTimeString(),
                 ],
             ]);
 

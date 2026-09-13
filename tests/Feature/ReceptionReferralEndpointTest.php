@@ -30,6 +30,44 @@ it('registers a kiosk acquisition for a patient at reception', function (): void
         ->assertJsonPath('data.visit.id', $visitId);
 });
 
+it('creates a direct walk-in visit for an existing patient', function (): void {
+    $department = ApiScenario::department('DIRECT-WALKIN');
+    $station = ApiScenario::station($department, 'DIRECT-WALKIN-REG');
+    ApiScenario::workflow($department, [$station]);
+    $patient = Patient::create(['name' => 'Existing Walk-in Patient']);
+    $receptionist = User::factory()->create(['role' => UserRole::RECEPTIONIST]);
+
+    $this->actingAs($receptionist, 'sanctum')
+        ->postJson('/api/v1/reception/visits', [
+            'department_code' => $department->code,
+            'patient_id' => $patient->id,
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.intake_channel', 'WALK_IN')
+        ->assertJsonPath('data.status', 'WAITING')
+        ->assertJsonPath('data.queue_tickets.0.status', 'CREATED');
+
+    expect($patient->fresh()->visits()->count())->toBe(1);
+});
+
+it('creates a patient and walk-in visit when reception receives new patient data', function (): void {
+    $department = ApiScenario::department('NEW-WALKIN');
+    $station = ApiScenario::station($department, 'NEW-WALKIN-REG');
+    ApiScenario::workflow($department, [$station]);
+    $receptionist = User::factory()->create(['role' => UserRole::RECEPTIONIST]);
+
+    $this->actingAs($receptionist, 'sanctum')
+        ->postJson('/api/v1/reception/visits', [
+            'department_code' => $department->code,
+            'name' => 'New Walk-in Patient',
+            'phone' => '08123456789',
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.intake_channel', 'WALK_IN');
+
+    expect(Patient::query()->where('name', 'New Walk-in Patient')->exists())->toBeTrue();
+});
+
 it('rejects reception registration from another department', function (): void {
     $department = ApiScenario::department('RECEPTION-SOURCE');
     $station = ApiScenario::station($department, 'RECEPTION-SOURCE-REG');

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\IntakeChannel;
 use App\Enums\VisitStatus;
+use App\Models\AuditLog;
 use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -24,7 +25,7 @@ class CheckInOnlineVisit
                 ]);
             }
 
-            if ($visit->status === VisitStatus::CHECKED_IN) {
+            if ($visit->status === VisitStatus::WAITING) {
                 return $visit->fresh([
                     'department',
                     'queueTickets.station',
@@ -32,15 +33,27 @@ class CheckInOnlineVisit
                 ]);
             }
 
-            if ($visit->status !== VisitStatus::AWAITING_CHECKIN) {
+            if (! in_array($visit->status, [VisitStatus::AWAITING_CHECKIN, VisitStatus::CHECKED_IN], true)) {
                 throw ValidationException::withMessages([
                     'visit' => 'This visit is not waiting for check-in.',
                 ]);
             }
 
+            $checkedInAt = now();
+
             $visit->update([
-                'status' => VisitStatus::CHECKED_IN,
-                'checked_in_at' => now(),
+                'status' => VisitStatus::WAITING,
+                'checked_in_at' => $checkedInAt,
+            ]);
+
+            AuditLog::create([
+                'action' => 'VISIT_CHECKED_IN',
+                'auditable_type' => Visit::class,
+                'auditable_id' => $visit->id,
+                'new_values' => [
+                    'status' => VisitStatus::WAITING->value,
+                    'checked_in_at' => $checkedInAt->toDateTimeString(),
+                ],
             ]);
 
             return $visit->fresh([
