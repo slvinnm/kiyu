@@ -26,11 +26,20 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        /*
+         * API requests should always receive JSON responses.
+         */
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request): bool => $request->is('api/*') || $request->expectsJson(),
         );
 
-        $exceptions->renderable(function (ValidationException $exception, Request $request) {
+        /*
+         * Validation failed.
+         */
+        $exceptions->renderable(function (
+            ValidationException $exception,
+            Request $request
+        ) {
             if (! $request->is('api/*')) {
                 return null;
             }
@@ -42,7 +51,13 @@ return Application::configure(basePath: dirname(__DIR__))
             ], $exception->status);
         });
 
-        $exceptions->renderable(function (AuthenticationException $exception, Request $request) {
+        /*
+         * User is not authenticated.
+         */
+        $exceptions->renderable(function (
+            AuthenticationException $exception,
+            Request $request
+        ) {
             if (! $request->is('api/*')) {
                 return null;
             }
@@ -54,7 +69,13 @@ return Application::configure(basePath: dirname(__DIR__))
             ], 401);
         });
 
-        $exceptions->renderable(function (AuthorizationException $exception, Request $request) {
+        /*
+         * User is authenticated but not authorized.
+         */
+        $exceptions->renderable(function (
+            AuthorizationException $exception,
+            Request $request
+        ) {
             if (! $request->is('api/*')) {
                 return null;
             }
@@ -66,7 +87,13 @@ return Application::configure(basePath: dirname(__DIR__))
             ], 403);
         });
 
-        $exceptions->renderable(function (ModelNotFoundException $exception, Request $request) {
+        /*
+         * Requested model/resource was not found.
+         */
+        $exceptions->renderable(function (
+            ModelNotFoundException $exception,
+            Request $request
+        ) {
             if (! $request->is('api/*')) {
                 return null;
             }
@@ -78,7 +105,18 @@ return Application::configure(basePath: dirname(__DIR__))
             ], 404);
         });
 
-        $exceptions->renderable(function (HttpExceptionInterface $exception, Request $request) {
+        /*
+         * HTTP exceptions such as:
+         * 400 Bad Request
+         * 405 Method Not Allowed
+         * 409 Conflict
+         * 429 Too Many Requests
+         * etc.
+         */
+        $exceptions->renderable(function (
+            HttpExceptionInterface $exception,
+            Request $request
+        ) {
             if (! $request->is('api/*')) {
                 return null;
             }
@@ -89,4 +127,26 @@ return Application::configure(basePath: dirname(__DIR__))
                 'errors' => [],
             ], $exception->getStatusCode(), $exception->getHeaders());
         });
-    })->create();
+
+        /*
+         * Fallback for unexpected API exceptions.
+         *
+         * Do not expose the original exception message because it may
+         * contain sensitive application or database information.
+         */
+        $exceptions->renderable(function (
+            Throwable $exception,
+            Request $request
+        ) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An unexpected error occurred.',
+                'errors' => [],
+            ], 500);
+        });
+    })
+    ->create();

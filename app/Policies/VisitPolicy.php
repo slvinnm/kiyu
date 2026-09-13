@@ -49,14 +49,14 @@ class VisitPolicy
         return $user->department_id === $visit->department_id
             && $user->station_id !== null
             && QueueTicket::query()
-            ->whereBelongsTo($visit)
-            ->where('station_id', $user->station_id)
-            ->whereIn('status', [
-                QueueStatus::CREATED->value,
-                QueueStatus::CALLED->value,
-                QueueStatus::IN_PROGRESS->value,
-                QueueStatus::ON_HOLD->value,
-            ])
-            ->exists();
+                ->whereBelongsTo($visit)
+                ->where('station_id', $user->station_id)
+                ->whereIn('status', [
+                    QueueStatus::CREATED->value,
+                    QueueStatus::CALLED->value,
+                    QueueStatus::IN_PROGRESS->value,
+                    QueueStatus::ON_HOLD->value,
+                ])
+                ->exists();
     }
 }

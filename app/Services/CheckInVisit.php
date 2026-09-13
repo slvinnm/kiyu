@@ -28,7 +28,7 @@ class CheckInVisit
 
             if ($visit->status !== VisitStatus::AWAITING_CHECKIN) {
                 throw new \LogicException(
-                    'Visit must be in AWAITING_CHECKIN state to check in. Current: ' .
+                    'Visit must be in AWAITING_CHECKIN state to check in. Current: '.
                         ($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status)
                 );
             }
