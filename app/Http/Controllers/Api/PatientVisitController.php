@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VisitResource;
 use App\Models\Visit;
@@ -17,6 +18,8 @@ class PatientVisitController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        abort_unless($request->user()->role === UserRole::PATIENT, 403);
+
         $patient = $request->user()->patient;
         abort_unless($patient, 403, 'Authenticated user has no patient profile.');
 
