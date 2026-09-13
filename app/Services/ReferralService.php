@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Enums\IntakeChannel;
 use App\Enums\Priority;
+use App\Enums\QueueStatus;
 use App\Enums\ReferralStatus;
+use App\Enums\VisitStatus;
 use App\Models\AuditLog;
 use App\Models\Department;
 use App\Models\Referral;
@@ -46,12 +48,37 @@ class ReferralService
                 ]);
             }
 
-            $targetVisit = $this->createVisit->handle(
-                patientId: $sourceVisit->patient_id,
-                departmentCode: $targetDepartment->code,
-                intakeChannel: IntakeChannel::WALK_IN,
-                priority: $priority?->value ?? $sourceVisit->priority->value,
-            );
+            $targetVisit = Visit::query()
+                ->where('patient_id', $sourceVisit->patient_id)
+                ->where('department_id', $targetDepartment->id)
+                ->whereIn('status', [
+                    VisitStatus::AWAITING_CHECKIN->value,
+                    VisitStatus::CHECKED_IN->value,
+                    VisitStatus::WAITING->value,
+                    VisitStatus::IN_PROGRESS->value,
+                ])
+                ->whereHas('queueTickets', function ($query): void {
+                    $query->whereIn('status', [
+                        QueueStatus::CREATED->value,
+                        QueueStatus::CALLED->value,
+                        QueueStatus::IN_PROGRESS->value,
+                        QueueStatus::ON_HOLD->value,
+                    ]);
+                })
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
+
+            $joinedExistingVisit = $targetVisit !== null;
+
+            if (! $targetVisit) {
+                $targetVisit = $this->createVisit->handle(
+                    patientId: $sourceVisit->patient_id,
+                    departmentCode: $targetDepartment->code,
+                    intakeChannel: IntakeChannel::WALK_IN,
+                    priority: $priority?->value ?? $sourceVisit->priority->value,
+                );
+            }
 
             $referral = Referral::create([
                 'source_visit_id' => $sourceVisit->id,
@@ -71,6 +98,7 @@ class ReferralService
                     'source_visit_id' => $sourceVisit->id,
                     'target_visit_id' => $targetVisit->id,
                     'target_department_id' => $targetDepartment->id,
+                    'joined_existing_visit' => $joinedExistingVisit,
                 ],
             ]);
 
