@@ -32,7 +32,25 @@ class QueueService
     public function callNext(int $stationId, ?int $calledByUserId = null): ?QueueTicket
     {
         return DB::transaction(function () use ($stationId, $calledByUserId) {
-            $station = Station::findOrFail($stationId);
+            $station = Station::query()
+                ->whereKey($stationId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $hasActiveTicket = QueueTicket::query()
+                ->where('station_id', $station->id)
+                ->whereIn('status', [
+                    QueueStatus::CALLED->value,
+                    QueueStatus::IN_PROGRESS->value,
+                ])
+                ->exists();
+
+            if ($hasActiveTicket) {
+                throw ValidationException::withMessages([
+                    'station' => 'The station already has an active queue ticket.',
+                ]);
+            }
+
             $ticket = $this->selector->callNext($station);
 
             if (! $ticket) {
