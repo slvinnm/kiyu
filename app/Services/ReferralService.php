@@ -37,6 +37,16 @@ class ReferralService
                 ]);
             }
 
+            if (! in_array($sourceVisit->status, [
+                VisitStatus::CHECKED_IN,
+                VisitStatus::WAITING,
+                VisitStatus::IN_PROGRESS,
+            ], true)) {
+                throw ValidationException::withMessages([
+                    'visit' => 'Only active visits can be referred.',
+                ]);
+            }
+
             $targetDepartment = Department::query()
                 ->whereKey($targetDepartmentId)
                 ->where('is_active', true)
@@ -65,8 +75,8 @@ class ReferralService
                         QueueStatus::ON_HOLD->value,
                     ]);
                 })
+                ->orderByDesc('id')
                 ->lockForUpdate()
-                ->latest('id')
                 ->first();
 
             $joinedExistingVisit = $targetVisit !== null;
@@ -78,6 +88,33 @@ class ReferralService
                     intakeChannel: IntakeChannel::WALK_IN,
                     priority: $priority?->value ?? $sourceVisit->priority->value,
                 );
+            } elseif ($priority !== null && $priority->value > $targetVisit->priority->value) {
+                $targetVisit->update([
+                    'priority' => $priority->value,
+                ]);
+
+                $targetVisit->queueTickets()
+                    ->whereIn('status', [
+                        QueueStatus::CREATED->value,
+                        QueueStatus::CALLED->value,
+                        QueueStatus::IN_PROGRESS->value,
+                        QueueStatus::ON_HOLD->value,
+                    ])
+                    ->update([
+                        'priority' => $priority->value,
+                    ]);
+            }
+
+            $duplicateReferral = Referral::query()
+                ->where('source_visit_id', $sourceVisit->id)
+                ->where('target_visit_id', $targetVisit->id)
+                ->where('status', ReferralStatus::ACCEPTED->value)
+                ->exists();
+
+            if ($duplicateReferral) {
+                throw ValidationException::withMessages([
+                    'target_department_id' => 'An active referral already exists for this target visit.',
+                ]);
             }
 
             $referral = Referral::create([
