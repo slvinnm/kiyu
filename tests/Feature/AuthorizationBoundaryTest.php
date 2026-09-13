@@ -65,7 +65,8 @@ it('keeps queue ticket authorization scoped to operational staff and station', f
 
 it('keeps station authorization scoped to operational staff and station', function (): void {
     $policy = new StationPolicy;
-    $station = new Station(['id' => 10]);
+    $station = new Station;
+    $station->setAttribute('id', 10);
 
     $patient = new User(['role' => UserRole::PATIENT]);
     $staff = new User([
@@ -86,7 +87,8 @@ it('keeps station authorization scoped to operational staff and station', functi
 
 it('keeps patient visit authorization owned by the authenticated patient', function (): void {
     $policy = new VisitPolicy;
-    $patient = new Patient(['id' => 10]);
+    $patient = new Patient;
+    $patient->setAttribute('id', 10);
     $visit = new Visit(['patient_id' => 10]);
     $otherVisit = new Visit(['patient_id' => 11]);
 
