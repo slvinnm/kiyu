@@ -11,6 +11,7 @@ enum UserRole: string
     case PHARMACY = 'pharmacy';
     case LAB = 'lab';
     case STAFF = 'staff';
+    case PATIENT = 'patient';
 
     public function label(): string
     {
@@ -22,6 +23,7 @@ enum UserRole: string
             self::PHARMACY => 'Pharmacist',
             self::LAB => 'Laboratory Technician',
             self::STAFF => 'General Staff',
+            self::PATIENT => 'Patient',
         };
     }
 }
