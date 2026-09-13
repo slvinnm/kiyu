@@ -37,20 +37,6 @@ class QueueService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $hasActiveTicket = QueueTicket::query()
-                ->where('station_id', $station->id)
-                ->whereIn('status', [
-                    QueueStatus::CALLED->value,
-                    QueueStatus::IN_PROGRESS->value,
-                ])
-                ->exists();
-
-            if ($hasActiveTicket) {
-                throw ValidationException::withMessages([
-                    'station' => 'The station already has an active queue ticket.',
-                ]);
-            }
-
             $ticket = $this->selector->callNext($station);
 
             if (! $ticket) {
@@ -260,12 +246,19 @@ class QueueService
     public function transferTicket(int $ticketId, int $targetStationId, ?int $transferredByUserId = null): array
     {
         return DB::transaction(function () use ($ticketId, $targetStationId, $transferredByUserId) {
-            $ticket = QueueTicket::with(['visitWorkflowStep.workflowStep', 'visit'])
+            $ticket = QueueTicket::with([
+                'visitWorkflowStep.workflowStep.station',
+                'visit',
+            ])
                 ->whereKey($ticketId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $targetStation = Station::findOrFail($targetStationId);
+            $targetStation = Station::query()
+                ->whereKey($targetStationId)
+                ->where('is_active', true)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             if (! in_array($ticket->status, [
                 QueueStatus::CREATED,
@@ -275,23 +268,18 @@ class QueueService
                 throw new \LogicException('Only active queue tickets can be transferred.');
             }
 
-            if ($targetStation->id === $ticket->station_id || ! $targetStation->is_active) {
-                throw new \LogicException('Transfer requires a different active station.');
+            if ($targetStation->id === $ticket->station_id) {
+                throw new \LogicException('Transfer requires a different station.');
             }
 
             $currentStep = $ticket->visitWorkflowStep->workflowStep;
-            $sourceStation = $currentStep->station;
-
-            if (! $sourceStation) {
-                throw new \LogicException('Current workflow step has no source station.');
-            }
 
             if (! $currentStep->stations()->whereKey($targetStation->id)->exists()) {
                 throw new \LogicException('Transfer target station is not allowed for this workflow step.');
             }
 
-            if ($targetStation->department_id !== $sourceStation->department_id || $targetStation->type !== $sourceStation->type) {
-                throw new \LogicException('Transfer target must be an active station of the same department and station type.');
+            if ($targetStation->department_id !== $ticket->visit->department_id) {
+                throw new \LogicException('Transfer target must belong to the visit department.');
             }
 
             if (! $this->stateMachine->apply($ticket, QueueStatus::TRANSFERRED, $transferredByUserId)) {
