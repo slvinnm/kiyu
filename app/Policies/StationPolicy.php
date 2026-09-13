@@ -10,8 +10,22 @@ class StationPolicy
 {
     public function view(User $user, Station $station): bool
     {
-        return $user->role === UserRole::ADMIN
-            || $user->station_id === $station->id;
+        if ($user->role === UserRole::ADMIN) {
+            return true;
+        }
+
+        if (! in_array($user->role, [
+            UserRole::RECEPTIONIST,
+            UserRole::NURSE,
+            UserRole::DOCTOR,
+            UserRole::PHARMACY,
+            UserRole::LAB,
+            UserRole::STAFF,
+        ], true)) {
+            return false;
+        }
+
+        return $user->station_id === $station->id;
     }
 
     public function callNext(User $user, Station $station): bool
