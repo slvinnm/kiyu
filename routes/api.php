@@ -13,18 +13,18 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
-    Route::prefix('kiosk')->group(function () {
+    Route::prefix('kiosk')->middleware('throttle:60,1')->group(function () {
         Route::get('/departments', [KioskController::class, 'departments']);
         Route::post('/queue-acquisitions', [KioskController::class, 'acquire']);
     });
 
-    Route::prefix('public')->group(function () {
+    Route::prefix('public')->middleware('throttle:120,1')->group(function () {
         Route::get('/queues/{station}', [PublicQueueDisplayController::class, 'show']);
     });
 
     Route::prefix('patient')->group(function () {
-        Route::post('/register', [PatientAuthController::class, 'register']);
-        Route::post('/login', [PatientAuthController::class, 'login']);
+        Route::post('/register', [PatientAuthController::class, 'register'])->middleware('throttle:10,1');
+        Route::post('/login', [PatientAuthController::class, 'login'])->middleware('throttle:10,1');
     });
 
     Route::middleware('auth:sanctum')->group(function () {

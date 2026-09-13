@@ -11,40 +11,34 @@ use App\Models\Visit;
 use App\Models\VisitCounter;
 use App\Models\WorkflowVersion;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 class CreateVisit
 {
-    /**
-     * Create a visit through any intake channel (ONLINE, KIOSK, WALK_IN).
-     *
-     * @param  string  $departmentCode  e.g., 'POLIUM'
-     * @param  int|null  $priority  Override priority (for internal use only - API should NOT accept this)
-     *
-     * @throws ValidationException
-     */
     public function handle(int $patientId, string $departmentCode, IntakeChannel $intakeChannel, ?int $priority = null): Visit
     {
         return DB::transaction(function () use ($patientId, $departmentCode, $intakeChannel, $priority) {
             $patient = Patient::findOrFail($patientId);
+            $department = Department::where('code', $departmentCode)->where('is_active', true)->firstOrFail();
 
-            $department = Department::where('code', $departmentCode)
-                ->where('is_active', true)
-                ->firstOrFail();
-
-            $workflow = $department->workflows()
-                ->where('is_active', true)
-                ->orderBy('id')
-                ->first();
-
-            if (! $workflow) {
-                throw new \LogicException("No active workflow found for department {$department->code}");
+            $workflows = $department->workflows()->where('is_active', true)->orderBy('id')->get();
+            if ($workflows->count() !== 1) {
+                throw new \LogicException("Department {$department->code} must have exactly one active workflow.");
             }
+            $workflow = $workflows->first();
 
-            $workflowVersion = WorkflowVersion::where('workflow_id', $workflow->id)
+            $workflowVersions = WorkflowVersion::where('workflow_id', $workflow->id)
                 ->where('is_active', true)
-                ->orderBy('version_number')
-                ->firstOrFail();
+                ->orderByDesc('version_number')
+                ->get();
+            if ($workflowVersions->count() !== 1) {
+                throw new \LogicException("Workflow {$workflow->id} must have exactly one active version.");
+            }
+            $workflowVersion = $workflowVersions->first();
+
+            $firstStep = $workflowVersion->steps()->orderBy('sequence')->first();
+            if (! $firstStep) {
+                throw new \LogicException("Workflow version {$workflowVersion->id} has no steps");
+            }
 
             $visitPriority = $priority ?? Priority::NORMAL->value;
             if (! in_array($visitPriority, [
@@ -65,17 +59,9 @@ class CreateVisit
                 'status' => $this->resolveInitialStatus($intakeChannel),
             ]);
 
-            $firstStep = $workflowVersion->steps()
-                ->orderBy('sequence')
-                ->first();
-
-            if ($firstStep) {
-                $workflowEngine = new WorkflowEngine;
-                $initialTicket = $workflowEngine->createFromIntake($visit, $firstStep->sequence);
-
-                if ($initialTicket && $priority !== null) {
-                    $initialTicket->update(['priority' => $priority]);
-                }
+            $initialTicket = app(WorkflowEngine::class)->createFromIntake($visit, $firstStep->sequence);
+            if (! $initialTicket) {
+                throw new \LogicException('Unable to create the initial queue ticket');
             }
 
             return $visit->fresh();
@@ -94,7 +80,6 @@ class CreateVisit
     {
         $counter = new VisitCounter;
         $nextNumber = $counter->incrementAndGet();
-
         $date = now()->format('y-m-d');
 
         return sprintf('V-%s-%05d', str_replace('-', '', $date), $nextNumber);
