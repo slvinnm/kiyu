@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\KioskController;
 use App\Http\Controllers\Api\OnlineController;
 use App\Http\Controllers\Api\PatientAuthController;
+use App\Http\Controllers\Api\PatientVisitController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
@@ -23,6 +24,9 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('patient')->group(function () {
             Route::get('/me', [PatientAuthController::class, 'me']);
+            Route::get('/visits', [PatientVisitController::class, 'index']);
+            Route::get('/visits/{visit}', [PatientVisitController::class, 'show']);
+            Route::post('/visits/{visit}/check-in', [PatientVisitController::class, 'checkIn']);
         });
 
         Route::prefix('online')->group(function () {
