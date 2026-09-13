@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\OnlineVisitRequest;
 use App\Http\Resources\VisitResource;
@@ -17,10 +16,7 @@ class OnlineController extends Controller
 
     public function store(OnlineVisitRequest $request): JsonResponse
     {
-        abort_unless($request->user()->role === UserRole::PATIENT, 403);
-
         $patient = $request->user()->patient;
-        abort_unless($patient, 403, 'Authenticated user has no patient profile.');
 
         $visit = $this->createOnlineVisit->handle(
             patient: $patient,

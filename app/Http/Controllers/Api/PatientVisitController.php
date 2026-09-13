@@ -2,15 +2,14 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\PatientAccessRequest;
 use App\Http\Resources\PatientQueueTicketResource;
 use App\Http\Resources\VisitResource;
 use App\Models\Visit;
 use App\Services\CheckInOnlineVisit;
 use App\Services\PatientQueueService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class PatientVisitController extends Controller
 {
@@ -19,12 +18,9 @@ class PatientVisitController extends Controller
         private PatientQueueService $patientQueueService,
     ) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(PatientAccessRequest $request): JsonResponse
     {
-        abort_unless($request->user()->role === UserRole::PATIENT, 403);
-
         $patient = $request->user()->patient;
-        abort_unless($patient, 403, 'Authenticated user has no patient profile.');
 
         $visits = Visit::query()
             ->where('patient_id', $patient->id)
@@ -58,12 +54,9 @@ class PatientVisitController extends Controller
         ]);
     }
 
-    public function queue(Request $request): JsonResponse
+    public function queue(PatientAccessRequest $request): JsonResponse
     {
-        abort_unless($request->user()->role === UserRole::PATIENT, 403);
-
         $patient = $request->user()->patient;
-        abort_unless($patient, 403, 'Authenticated user has no patient profile.');
 
         $tickets = $this->patientQueueService->activeTickets($patient);
 
