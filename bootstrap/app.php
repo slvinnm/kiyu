@@ -10,6 +10,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use LogicException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -103,6 +104,26 @@ return Application::configure(basePath: dirname(__DIR__))
                 'message' => 'The requested resource was not found.',
                 'errors' => [],
             ], 404);
+        });
+
+        /*
+         * LogicException — domain / business-rule conflicts.
+         * Return a stable 422 JSON so the frontend can present a
+         * clear, user-friendly message instead of a generic 500.
+         */
+        $exceptions->renderable(function (
+            LogicException $exception,
+            Request $request
+        ) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+                'errors' => [],
+            ], 422);
         });
 
         /*
