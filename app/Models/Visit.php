@@ -23,6 +23,7 @@ class Visit extends Model
         'priority',
         'intake_channel',
         'status',
+        'online_active_key',
         'registered_by',
         'checked_in_at',
         'completed_at',

@@ -23,10 +23,12 @@ class PublicQueueDisplayService
             ->firstOrFail();
 
         $today = Carbon::today();
+        $tomorrow = $today->copy()->addDay();
 
         $current = QueueTicket::query()
             ->where('station_id', $station->id)
-            ->whereDate('created_at', $today)
+            ->where('created_at', '>=', $today)
+            ->where('created_at', '<', $tomorrow)
             ->whereIn('status', [
                 QueueStatus::IN_PROGRESS->value,
                 QueueStatus::CALLED->value,
@@ -38,9 +40,10 @@ class PublicQueueDisplayService
 
         $upcoming = QueueTicket::query()
             ->where('station_id', $station->id)
-            ->whereDate('created_at', $today)
+            ->where('created_at', '>=', $today)
+            ->where('created_at', '<', $tomorrow)
             ->where('status', QueueStatus::CREATED->value)
-            ->whereHas('visit', fn ($query) => $query->where('status', VisitStatus::WAITING->value))
+            ->whereHas('visit', fn($query) => $query->where('status', VisitStatus::WAITING->value))
             ->with(['station', 'visit', 'visitWorkflowStep.workflowStep'])
             ->orderByDesc('priority')
             ->orderBy('internal_sequence')

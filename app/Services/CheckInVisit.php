@@ -28,7 +28,7 @@ class CheckInVisit
 
             if ($visit->status !== VisitStatus::AWAITING_CHECKIN) {
                 throw new \LogicException(
-                    'Visit must be in AWAITING_CHECKIN state to check in. Current: '.
+                    'Visit must be in AWAITING_CHECKIN state to check in. Current: ' .
                         ($visit->status instanceof VisitStatus ? $visit->status->value : $visit->status)
                 );
             }
@@ -49,6 +49,16 @@ class CheckInVisit
                 'new_values' => [
                     'status' => VisitStatus::WAITING->value,
                     'checked_in_at' => $checkedInAt->toDateTimeString(),
+                ],
+            ]);
+
+            AuditLog::create([
+                'user_id' => $userId,
+                'action' => 'VISIT_WAITING_AFTER_CHECKIN',
+                'auditable_type' => Visit::class,
+                'auditable_id' => $visit->id,
+                'new_values' => [
+                    'status' => VisitStatus::WAITING->value,
                 ],
             ]);
 

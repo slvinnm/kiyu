@@ -9,6 +9,7 @@ use App\Http\Requests\Api\QueueSkipRequest;
 use App\Http\Requests\Api\QueueTransferRequest;
 use App\Http\Resources\QueueTicketResource;
 use App\Http\Resources\StationResource;
+use App\Http\Resources\WorkflowStepResource;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Services\QueueService;
@@ -106,7 +107,9 @@ class QueueController extends Controller
                     'visit',
                     'visitWorkflowStep.workflowStep',
                 ])),
-                'next_step' => $result['next_step'],
+                'next_step' => $result['next_step']
+                    ? new WorkflowStepResource($result['next_step'])
+                    : null,
                 'visit_completed' => $result['visit_completed'],
                 'repeated' => $result['repeated'],
             ],
@@ -167,7 +170,9 @@ class QueueController extends Controller
                     'visit',
                     'visitWorkflowStep.workflowStep',
                 ])),
-                'next_step' => $result['next_step'],
+                'next_step' => $result['next_step']
+                    ? new WorkflowStepResource($result['next_step'])
+                    : null,
                 'visit_completed' => $result['visit_completed'],
             ],
         ]);

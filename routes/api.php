@@ -41,6 +41,7 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::prefix('reception')->group(function () {
+            Route::get('/patients', [ReceptionController::class, 'patients']);
             Route::post('/visits', [ReceptionController::class, 'store']);
             Route::post(
                 '/queue-acquisitions/{queueAcquisition}/register',

@@ -56,6 +56,15 @@ class CheckInOnlineVisit
                 ],
             ]);
 
+            AuditLog::create([
+                'action' => 'VISIT_WAITING_AFTER_CHECKIN',
+                'auditable_type' => Visit::class,
+                'auditable_id' => $visit->id,
+                'new_values' => [
+                    'status' => VisitStatus::WAITING->value,
+                ],
+            ]);
+
             return $visit->fresh([
                 'department',
                 'queueTickets.station',

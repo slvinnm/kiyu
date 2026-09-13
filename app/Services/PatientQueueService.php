@@ -21,7 +21,8 @@ class PatientQueueService
                     FROM queue_tickets AS ahead
                     INNER JOIN visits AS ahead_visits ON ahead_visits.id = ahead.visit_id
                     WHERE ahead.station_id = queue_tickets.station_id
-                      AND DATE(ahead.created_at) = DATE(queue_tickets.created_at)
+                      AND ahead.created_at >= DATE(queue_tickets.created_at)
+                      AND ahead.created_at < DATE_ADD(DATE(queue_tickets.created_at), INTERVAL 1 DAY)
                       AND ahead.status = ?
                       AND ahead_visits.status = ?
                       AND (
@@ -39,7 +40,7 @@ class PatientQueueService
                     VisitStatus::WAITING->value,
                 ],
             )
-            ->whereHas('visit', fn ($query) => $query->where('patient_id', $patient->id))
+            ->whereHas('visit', fn($query) => $query->where('patient_id', $patient->id))
             ->whereIn('status', [
                 QueueStatus::CREATED->value,
                 QueueStatus::CALLED->value,

@@ -12,6 +12,7 @@ class ReferralResource extends JsonResource
         return [
             'id' => $this->id,
             'status' => $this->status?->value,
+            'priority' => $this->priority?->value,
             'reason' => $this->reason,
             'source_visit' => [
                 'id' => $this->sourceVisit?->id,

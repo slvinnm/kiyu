@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\Priority;
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\CreateReferralRequest;
 use App\Http\Resources\ReferralResource;
@@ -25,19 +24,9 @@ class ReferralController extends Controller
         Visit $visit,
     ): JsonResponse {
         $user = $request->user();
-
-        abort_unless(
-            $user->role === UserRole::ADMIN
-                || in_array($user->role, [UserRole::DOCTOR, UserRole::NURSE], true),
-            403,
-        );
+        $this->authorize('refer', $visit);
 
         $visit->load('department');
-
-        abort_unless(
-            $user->role === UserRole::ADMIN || $user->department_id === $visit->department_id,
-            403,
-        );
 
         $targetDepartment = Department::query()->findOrFail(
             $request->integer('target_department_id'),

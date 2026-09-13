@@ -44,6 +44,7 @@ class QueueService
                 ->whereIn('status', [
                     QueueStatus::CALLED->value,
                     QueueStatus::IN_PROGRESS->value,
+                    QueueStatus::ON_HOLD->value,
                 ])
                 ->exists();
 
@@ -374,6 +375,12 @@ class QueueService
             $ticket->update([
                 'transferred_to_station_id' => $targetStation->id,
             ]);
+
+            if ($ticket->visit->status === VisitStatus::IN_PROGRESS) {
+                $ticket->visit->update([
+                    'status' => VisitStatus::WAITING->value,
+                ]);
+            }
 
             $allocation = (new QueueNumberGenerator)->allocate($targetStation);
             $newTicket = QueueTicket::create([

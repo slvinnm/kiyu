@@ -130,6 +130,7 @@ class ReferralService
                 'referred_by_user_id' => $referredByUserId,
                 'status' => ReferralStatus::ACCEPTED->value,
                 'reason' => $reason,
+                'priority' => $priority?->value ?? $sourceVisit->priority->value,
             ]);
 
             AuditLog::create([
@@ -141,6 +142,7 @@ class ReferralService
                     'source_visit_id' => $sourceVisit->id,
                     'target_visit_id' => $targetVisit->id,
                     'target_department_id' => $targetDepartment->id,
+                    'priority' => $referral->priority,
                     'joined_existing_visit' => $joinedExistingVisit,
                 ],
             ]);

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Priority;
 use App\Enums\ReferralStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,10 +19,12 @@ class Referral extends Model
         'referred_by_user_id',
         'status',
         'reason',
+        'priority',
     ];
 
     protected $casts = [
         'status' => ReferralStatus::class,
+        'priority' => Priority::class,
     ];
 
     public function sourceVisit(): BelongsTo
