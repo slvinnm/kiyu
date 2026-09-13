@@ -10,8 +10,22 @@ class QueueTicketPolicy
 {
     public function view(User $user, QueueTicket $ticket): bool
     {
-        return $user->role === UserRole::ADMIN
-            || $user->station_id === $ticket->station_id;
+        if ($user->role === UserRole::ADMIN) {
+            return true;
+        }
+
+        if (! in_array($user->role, [
+            UserRole::RECEPTIONIST,
+            UserRole::NURSE,
+            UserRole::DOCTOR,
+            UserRole::PHARMACY,
+            UserRole::LAB,
+            UserRole::STAFF,
+        ], true)) {
+            return false;
+        }
+
+        return $user->station_id === $ticket->station_id;
     }
 
     public function manage(User $user, QueueTicket $ticket): bool
