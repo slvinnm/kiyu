@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\PatientLoginRequest;
 use App\Http\Requests\Api\PatientRegisterRequest;
@@ -49,8 +50,9 @@ class PatientAuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
-        $patient = $request->user()->patient;
+        abort_unless($request->user()->role === UserRole::PATIENT, 403);
 
+        $patient = $request->user()->patient;
         abort_unless($patient, 403, 'Authenticated user has no patient profile.');
 
         return response()->json([
