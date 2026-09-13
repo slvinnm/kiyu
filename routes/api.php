@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\KioskController;
+use App\Http\Controllers\Api\OnlineController;
+use App\Http\Controllers\Api\PatientAuthController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
@@ -13,7 +15,20 @@ Route::prefix('v1')->group(function () {
         Route::post('/queue-acquisitions', [KioskController::class, 'acquire']);
     });
 
+    Route::prefix('patient')->group(function () {
+        Route::post('/register', [PatientAuthController::class, 'register']);
+        Route::post('/login', [PatientAuthController::class, 'login']);
+    });
+
     Route::middleware('auth:sanctum')->group(function () {
+        Route::prefix('patient')->group(function () {
+            Route::get('/me', [PatientAuthController::class, 'me']);
+        });
+
+        Route::prefix('online')->group(function () {
+            Route::post('/visits', [OnlineController::class, 'store']);
+        });
+
         Route::prefix('reception')->group(function () {
             Route::post(
                 '/queue-acquisitions/{queueAcquisition}/register',
