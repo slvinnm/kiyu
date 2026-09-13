@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\QueueCompleteRequest;
 use App\Http\Requests\Api\QueueSkipRequest;
@@ -23,12 +24,14 @@ class QueueController extends Controller
     {
         $user = request()->user();
 
+        abort_unless($user->role !== UserRole::PATIENT, 403);
+
         $query = Station::query()
             ->where('is_active', true)
             ->with('department')
             ->orderBy('name');
 
-        if ($user->role->value !== 'admin') {
+        if ($user->role !== UserRole::ADMIN) {
             $query->whereKey($user->station_id);
         }
 
