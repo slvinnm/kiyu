@@ -8,6 +8,7 @@ use App\Enums\QueueStatus;
 use App\Enums\VisitStatus;
 use App\Enums\VisitWorkflowStatus;
 use App\Enums\VisitWorkflowStepStatus;
+use App\Models\AuditLog;
 use App\Models\QueueTicket;
 use App\Models\Visit;
 use App\Models\VisitWorkflow;
@@ -193,7 +194,7 @@ class WorkflowEngine
 
         if ($reason) {
             $ticket->update([
-                'notes' => $reason . ($ticket->notes ? " | {$ticket->notes}" : ''),
+                'notes' => $reason.($ticket->notes ? " | {$ticket->notes}" : ''),
             ]);
         }
 
@@ -264,11 +265,10 @@ class WorkflowEngine
             }
 
             if (! $workflowStep->requires_queue) {
-                $runtimeStep = $this->createStepExecution(
+                $runtimeStep = $this->createRuntimeStep(
                     visit: $visit,
                     visitWorkflow: $visitWorkflow,
                     workflowStep: $workflowStep,
-                    createQueue: false,
                 );
 
                 if (! $this->requirementEvaluator->passes($workflowStep->completion_requirements, $context)) {
@@ -313,7 +313,6 @@ class WorkflowEngine
         Visit $visit,
         VisitWorkflow $visitWorkflow,
         WorkflowStep $workflowStep,
-        bool $createQueue = true,
     ): ?QueueTicket {
         if ($workflowStep->requires_queue && ! $workflowStep->station) {
             throw new \LogicException(
@@ -321,18 +320,11 @@ class WorkflowEngine
             );
         }
 
-        $executionNumber = $this->allocateExecutionNumber($visitWorkflow, $workflowStep);
-
-        $runtimeStep = VisitWorkflowStep::create([
-            'visit_workflow_id' => $visitWorkflow->id,
-            'workflow_step_id' => $workflowStep->id,
-            'execution_number' => $executionNumber,
-            'status' => VisitWorkflowStepStatus::PENDING->value,
-        ]);
-
-        if (! $createQueue || ! $workflowStep->requires_queue) {
-            return null;
-        }
+        $runtimeStep = $this->createRuntimeStep(
+            visit: $visit,
+            visitWorkflow: $visitWorkflow,
+            workflowStep: $workflowStep,
+        );
 
         $allocation = (new QueueNumberGenerator)->allocate($workflowStep->station);
 
@@ -350,9 +342,43 @@ class WorkflowEngine
             'event_type' => QueueEventType::CREATED,
             'from_status' => null,
             'to_status' => QueueStatus::CREATED->value,
+            'payload' => [
+                'visit_id' => $ticket->visit_id,
+                'station_id' => $ticket->station_id,
+                'workflow_step_id' => $workflowStep->id,
+                'execution_number' => $runtimeStep->execution_number,
+            ],
+        ]);
+
+        AuditLog::create([
+            'action' => 'QUEUE_TICKET_CREATED',
+            'auditable_type' => QueueTicket::class,
+            'auditable_id' => $ticket->id,
+            'new_values' => [
+                'status' => QueueStatus::CREATED->value,
+                'visit_id' => $ticket->visit_id,
+                'station_id' => $ticket->station_id,
+                'workflow_step_id' => $workflowStep->id,
+                'execution_number' => $runtimeStep->execution_number,
+            ],
         ]);
 
         return $ticket;
+    }
+
+    private function createRuntimeStep(
+        Visit $visit,
+        VisitWorkflow $visitWorkflow,
+        WorkflowStep $workflowStep,
+    ): VisitWorkflowStep {
+        $executionNumber = $this->allocateExecutionNumber($visitWorkflow, $workflowStep);
+
+        return VisitWorkflowStep::create([
+            'visit_workflow_id' => $visitWorkflow->id,
+            'workflow_step_id' => $workflowStep->id,
+            'execution_number' => $executionNumber,
+            'status' => VisitWorkflowStepStatus::PENDING->value,
+        ]);
     }
 
     private function createSkippedStep(

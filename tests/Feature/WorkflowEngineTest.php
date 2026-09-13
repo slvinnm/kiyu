@@ -79,11 +79,13 @@ function createWorkflowVisit(array $fixture, IntakeChannel $channel = IntakeChan
 it('creates queue tickets in deterministic sequence and completes the visit', function () {
     $fixture = workflowFixture();
 
-    foreach ([
-        [$fixture['registration'], 'Registration'],
-        [$fixture['nurse'], 'Nurse'],
-        [$fixture['doctor'], 'Doctor'],
-    ] as $sequence => [$station, $name]) {
+    foreach (
+        [
+            [$fixture['registration'], 'Registration'],
+            [$fixture['nurse'], 'Nurse'],
+            [$fixture['doctor'], 'Doctor'],
+        ] as $sequence => [$station, $name]
+    ) {
         WorkflowStep::create([
             'workflow_version_id' => $fixture['version']->id,
             'station_id' => $station->id,
@@ -270,4 +272,37 @@ it('progresses the workflow when a skippable ticket is skipped', function () {
     expect($result['skipped'])->toBeTrue();
     expect($result['visit_completed'])->toBeFalse();
     expect($visit->queueTickets()->where('station_id', $fixture['doctor']->id)->exists())->toBeTrue();
+});
+
+it('completes a stationless non-queued workflow step automatically', function (): void {
+    $fixture = workflowFixture();
+
+    WorkflowStep::create([
+        'workflow_version_id' => $fixture['version']->id,
+        'station_id' => $fixture['registration']->id,
+        'name' => 'Registration',
+        'sequence' => 1,
+        'requires_queue' => true,
+    ]);
+
+    $automaticStep = WorkflowStep::create([
+        'workflow_version_id' => $fixture['version']->id,
+        'station_id' => null,
+        'name' => 'Automatic Record Update',
+        'sequence' => 2,
+        'requires_queue' => false,
+    ]);
+
+    $visit = createWorkflowVisit($fixture);
+    $queue = app(QueueService::class);
+    $ticket = $visit->queueTickets()->sole();
+
+    $queue->callNext($fixture['registration']->id);
+    $queue->startTicket($ticket->id);
+    $queue->completeTicket($ticket->id);
+
+    expect($visit->fresh()->status)->toBe(VisitStatus::COMPLETED);
+    expect($visit->visitWorkflow->steps()
+        ->where('workflow_step_id', $automaticStep->id)
+        ->value('status'))->toBe(VisitWorkflowStepStatus::COMPLETED);
 });

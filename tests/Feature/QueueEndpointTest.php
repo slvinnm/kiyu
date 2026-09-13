@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Enums\VisitStatus;
 use App\Enums\VisitWorkflowStatus;
 use App\Enums\VisitWorkflowStepStatus;
+use App\Models\AuditLog;
 use App\Models\Patient;
 use App\Models\User;
 use App\Services\QueueService;
@@ -50,26 +51,32 @@ it('runs a queue ticket through call, start, hold, resume, and complete endpoint
     ]);
 
     $this->actingAs($staff, 'sanctum')
-        ->postJson('/api/v1/queue/stations/' . $station->id . '/call-next')
+        ->postJson('/api/v1/queue/stations/'.$station->id.'/call-next')
         ->assertOk()
         ->assertJsonPath('data.id', $ticket->id);
 
-    $this->postJson('/api/v1/queue/tickets/' . $ticket->id . '/start')
+    $this->postJson('/api/v1/queue/tickets/'.$ticket->id.'/start')
         ->assertOk()
         ->assertJsonPath('data.status', QueueStatus::IN_PROGRESS->value);
 
-    $this->postJson('/api/v1/queue/tickets/' . $ticket->id . '/hold')
+    $this->postJson('/api/v1/queue/tickets/'.$ticket->id.'/hold')
         ->assertOk()
         ->assertJsonPath('success', true);
 
-    $this->postJson('/api/v1/queue/tickets/' . $ticket->id . '/resume')
+    $this->postJson('/api/v1/queue/tickets/'.$ticket->id.'/resume')
         ->assertOk()
         ->assertJsonPath('success', true);
 
-    $this->postJson('/api/v1/queue/tickets/' . $ticket->id . '/start')->assertOk();
-    $this->postJson('/api/v1/queue/tickets/' . $ticket->id . '/complete')
+    $this->postJson('/api/v1/queue/tickets/'.$ticket->id.'/start')->assertOk();
+    $this->postJson('/api/v1/queue/tickets/'.$ticket->id.'/complete')
         ->assertOk()
         ->assertJsonPath('data.ticket.status', QueueStatus::COMPLETED->value);
+
+    expect(AuditLog::query()
+        ->where('action', 'QUEUE_TICKET_STATUS_CHANGED')
+        ->where('auditable_id', $ticket->id)
+        ->whereJsonContains('new_values->visit_id', $visit->id)
+        ->exists())->toBeTrue();
 });
 
 it('returns 422 when a ticket cannot be started from its current state', function (): void {
@@ -84,7 +91,7 @@ it('returns 422 when a ticket cannot be started from its current state', functio
     ]);
 
     $this->actingAs($staff, 'sanctum')
-        ->postJson('/api/v1/queue/tickets/' . $ticket->id . '/start')
+        ->postJson('/api/v1/queue/tickets/'.$ticket->id.'/start')
         ->assertUnprocessable()
         ->assertJsonPath('success', false);
 });
@@ -102,7 +109,7 @@ it('forbids staff from managing a ticket assigned to another station', function 
     ]);
 
     $this->actingAs($staff, 'sanctum')
-        ->postJson('/api/v1/queue/tickets/' . $ticket->id . '/start')
+        ->postJson('/api/v1/queue/tickets/'.$ticket->id.'/start')
         ->assertForbidden();
 });
 
@@ -127,7 +134,7 @@ it('cancels the visit runtime when a ticket is cancelled', function (): void {
     ]);
 
     $this->actingAs($staff, 'sanctum')
-        ->postJson('/api/v1/queue/tickets/' . $ticket->id . '/cancel')
+        ->postJson('/api/v1/queue/tickets/'.$ticket->id.'/cancel')
         ->assertOk();
 
     expect($visit->fresh()->status)->toBe(VisitStatus::CANCELLED);
@@ -150,7 +157,7 @@ it('marks a called ticket as no-show and closes its visit runtime', function ():
     $this->actingAs($staff, 'sanctum');
     app(QueueService::class)->callNext($station->id, $staff->id);
 
-    $this->postJson('/api/v1/queue/tickets/' . $ticket->id . '/no-show')
+    $this->postJson('/api/v1/queue/tickets/'.$ticket->id.'/no-show')
         ->assertOk();
 
     expect($ticket->fresh()->status)->toBe(QueueStatus::NO_SHOW);

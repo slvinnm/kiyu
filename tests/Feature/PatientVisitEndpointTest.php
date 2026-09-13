@@ -50,11 +50,11 @@ it('lists and returns only the authenticated patient visits', function (): void 
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.id', $visit->id);
 
-    $this->getJson('/api/v1/patient/visits/' . $visit->id)
+    $this->getJson('/api/v1/patient/visits/'.$visit->id)
         ->assertOk()
         ->assertJsonPath('data.id', $visit->id);
 
-    $this->getJson('/api/v1/patient/visits/' . $otherVisit->id)->assertForbidden();
+    $this->getJson('/api/v1/patient/visits/'.$otherVisit->id)->assertForbidden();
 });
 
 it('returns active queue tickets and checks in an online visit', function (): void {
@@ -69,7 +69,7 @@ it('returns active queue tickets and checks in an online visit', function (): vo
         ->assertOk()
         ->assertJsonPath('data.0.visit.id', $onlineVisit->id);
 
-    $this->postJson('/api/v1/patient/visits/' . $onlineVisit->id . '/check-in')
+    $this->postJson('/api/v1/patient/visits/'.$onlineVisit->id.'/check-in')
         ->assertOk()
         ->assertJsonPath('data.status', 'WAITING');
 

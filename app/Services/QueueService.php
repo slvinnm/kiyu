@@ -7,6 +7,7 @@ use App\Enums\QueueStatus;
 use App\Enums\VisitStatus;
 use App\Enums\VisitWorkflowStatus;
 use App\Enums\VisitWorkflowStepStatus;
+use App\Models\AuditLog;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use Illuminate\Support\Facades\DB;
@@ -201,6 +202,10 @@ class QueueService
                 $ticket,
                 QueueStatus::SKIPPED,
                 $skippedByUserId,
+                [
+                    'reason' => $reason,
+                    'context' => $context,
+                ],
             );
 
             if (! $result) {
@@ -234,7 +239,12 @@ class QueueService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $updated = $this->stateMachine->apply($ticket, QueueStatus::NO_SHOW, $markedByUserId);
+            $updated = $this->stateMachine->apply(
+                $ticket,
+                QueueStatus::NO_SHOW,
+                $markedByUserId,
+                ['reason' => 'NO_SHOW'],
+            );
 
             if ($updated) {
                 $this->terminateTicketRuntime($ticket);
@@ -260,7 +270,12 @@ class QueueService
                 return false;
             }
 
-            $updated = $this->stateMachine->apply($ticket, QueueStatus::CANCELLED, $cancelledByUserId);
+            $updated = $this->stateMachine->apply(
+                $ticket,
+                QueueStatus::CANCELLED,
+                $cancelledByUserId,
+                ['reason' => 'CANCELLED'],
+            );
 
             if ($updated) {
                 $this->terminateTicketRuntime($ticket);
@@ -347,7 +362,12 @@ class QueueService
                 throw new \LogicException('Transfer target must belong to the visit department.');
             }
 
-            if (! $this->stateMachine->apply($ticket, QueueStatus::TRANSFERRED, $transferredByUserId)) {
+            if (! $this->stateMachine->apply(
+                $ticket,
+                QueueStatus::TRANSFERRED,
+                $transferredByUserId,
+                ['target_station_id' => $targetStation->id],
+            )) {
                 throw new \LogicException('Ticket cannot transition to TRANSFERRED.');
             }
 
@@ -373,6 +393,24 @@ class QueueService
                 'from_status' => null,
                 'to_status' => QueueStatus::CREATED->value,
                 'user_id' => $transferredByUserId,
+                'payload' => [
+                    'visit_id' => $newTicket->visit_id,
+                    'station_id' => $newTicket->station_id,
+                    'transferred_from_ticket_id' => $ticket->id,
+                ],
+            ]);
+
+            AuditLog::create([
+                'user_id' => $transferredByUserId,
+                'action' => 'QUEUE_TICKET_TRANSFER_CREATED',
+                'auditable_type' => QueueTicket::class,
+                'auditable_id' => $newTicket->id,
+                'new_values' => [
+                    'status' => QueueStatus::CREATED->value,
+                    'visit_id' => $newTicket->visit_id,
+                    'station_id' => $newTicket->station_id,
+                    'transferred_from_ticket_id' => $ticket->id,
+                ],
             ]);
 
             return [

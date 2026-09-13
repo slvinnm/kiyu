@@ -7,11 +7,11 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class PatientAccessRequest extends FormRequest
 {
-  public function authorize(): bool
-  {
-    $user = $this->user();
+    public function authorize(): bool
+    {
+        $user = $this->user();
 
-    return $user?->role === UserRole::PATIENT
-      && $user->patient !== null;
-  }
+        return $user?->role === UserRole::PATIENT
+          && $user->patient !== null;
+    }
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\QueueStatus;
+use App\Enums\VisitStatus;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use Illuminate\Database\Eloquent\Collection;
@@ -23,34 +24,28 @@ class PublicQueueDisplayService
 
         $today = Carbon::today();
 
-        $tickets = QueueTicket::query()
+        $current = QueueTicket::query()
             ->where('station_id', $station->id)
             ->whereDate('created_at', $today)
-            ->get();
-
-        $current = $tickets
-            ->filter(fn(QueueTicket $ticket): bool => in_array($ticket->status->value, [
+            ->whereIn('status', [
                 QueueStatus::IN_PROGRESS->value,
                 QueueStatus::CALLED->value,
-            ], true))
-            ->sortByDesc(
-                fn(QueueTicket $ticket): int => $ticket->started_at?->getTimestamp()
-                    ?? $ticket->called_at?->getTimestamp()
-                    ?? 0,
-            )
+            ])
+            ->with(['station', 'visit', 'visitWorkflowStep.workflowStep'])
+            ->orderByRaw('COALESCE(started_at, called_at, created_at) DESC')
+            ->orderByDesc('id')
             ->first();
 
-        $upcoming = $tickets
-            ->filter(fn(QueueTicket $ticket): bool => $ticket->status->value === QueueStatus::CREATED->value)
-            ->sort(function (QueueTicket $left, QueueTicket $right): int {
-                if ($left->priority->value !== $right->priority->value) {
-                    return $right->priority->value <=> $left->priority->value;
-                }
-
-                return $left->internal_sequence <=> $right->internal_sequence;
-            })
-            ->take(max(1, min($upcomingLimit, 10)))
-            ->values();
+        $upcoming = QueueTicket::query()
+            ->where('station_id', $station->id)
+            ->whereDate('created_at', $today)
+            ->where('status', QueueStatus::CREATED->value)
+            ->whereHas('visit', fn ($query) => $query->where('status', VisitStatus::WAITING->value))
+            ->with(['station', 'visit', 'visitWorkflowStep.workflowStep'])
+            ->orderByDesc('priority')
+            ->orderBy('internal_sequence')
+            ->limit(max(1, min($upcomingLimit, 10)))
+            ->get();
 
         return [
             'station' => $station,

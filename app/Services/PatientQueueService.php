@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\QueueStatus;
+use App\Enums\VisitStatus;
 use App\Models\Patient;
 use App\Models\QueueTicket;
 use Illuminate\Database\Eloquent\Collection;
@@ -12,6 +13,32 @@ class PatientQueueService
     public function activeTickets(Patient $patient): Collection
     {
         $tickets = QueueTicket::query()
+            ->select('queue_tickets.*')
+            ->selectRaw(
+                <<<'SQL'
+                CASE WHEN queue_tickets.status = ? THEN (
+                    SELECT COUNT(*) + 1
+                    FROM queue_tickets AS ahead
+                    INNER JOIN visits AS ahead_visits ON ahead_visits.id = ahead.visit_id
+                    WHERE ahead.station_id = queue_tickets.station_id
+                      AND DATE(ahead.created_at) = DATE(queue_tickets.created_at)
+                      AND ahead.status = ?
+                      AND ahead_visits.status = ?
+                      AND (
+                          ahead.priority > queue_tickets.priority
+                          OR (
+                              ahead.priority = queue_tickets.priority
+                              AND ahead.internal_sequence < queue_tickets.internal_sequence
+                          )
+                      )
+                ) ELSE NULL END AS queue_position
+                SQL,
+                [
+                    QueueStatus::CREATED->value,
+                    QueueStatus::CREATED->value,
+                    VisitStatus::WAITING->value,
+                ],
+            )
             ->whereHas('visit', fn ($query) => $query->where('patient_id', $patient->id))
             ->whereIn('status', [
                 QueueStatus::CREATED->value,
@@ -28,38 +55,6 @@ class PatientQueueService
             ->orderBy('id')
             ->get();
 
-        $tickets->each(function (QueueTicket $ticket): void {
-            $ticket->queue_position = $this->queuePosition($ticket);
-        });
-
         return $tickets;
-    }
-
-    private function queuePosition(QueueTicket $ticket): ?int
-    {
-        if ($ticket->status !== QueueStatus::CREATED) {
-            return null;
-        }
-
-        $queueDate = $ticket->created_at?->toDateString();
-
-        if (! $queueDate) {
-            return null;
-        }
-
-        return QueueTicket::query()
-            ->where('station_id', $ticket->station_id)
-            ->whereDate('created_at', $queueDate)
-            ->where('status', QueueStatus::CREATED->value)
-            ->where(function ($query) use ($ticket) {
-                $query
-                    ->where('priority', '>', $ticket->priority->value)
-                    ->orWhere(function ($query) use ($ticket) {
-                        $query
-                            ->where('priority', $ticket->priority->value)
-                            ->where('internal_sequence', '<', $ticket->internal_sequence);
-                    });
-            })
-            ->count() + 1;
     }
 }

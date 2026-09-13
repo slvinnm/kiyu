@@ -25,7 +25,7 @@ class CreateOnlineVisit
 
             $hasActiveVisit = Visit::query()
                 ->where('patient_id', $patient->id)
-                ->whereHas('department', fn($query) => $query->where('code', $departmentCode))
+                ->whereHas('department', fn ($query) => $query->where('code', $departmentCode))
                 ->whereIn('status', [
                     VisitStatus::AWAITING_CHECKIN->value,
                     VisitStatus::CHECKED_IN->value,
@@ -44,7 +44,7 @@ class CreateOnlineVisit
                 patientId: $patient->id,
                 departmentCode: $departmentCode,
                 intakeChannel: IntakeChannel::ONLINE,
-                onlineActiveKey: $patient->id . '-' . $departmentCode,
+                onlineActiveKey: $patient->id.'-'.$departmentCode,
             );
         });
     }

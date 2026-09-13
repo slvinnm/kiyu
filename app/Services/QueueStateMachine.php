@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\QueueEventType;
 use App\Enums\QueueStatus;
+use App\Models\AuditLog;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 
@@ -60,14 +61,22 @@ class QueueStateMachine
         return in_array($to->value, $allowed, true);
     }
 
-    public function apply(QueueTicket $ticket, QueueStatus $to, ?int $byUserId = null): bool
-    {
+    public function apply(
+        QueueTicket $ticket,
+        QueueStatus $to,
+        ?int $byUserId = null,
+        array $payload = [],
+    ): bool {
         if (! $this->canTransition($ticket, $to)) {
             return false;
         }
 
         $fromValue = $ticket->status->value;
         $toValue = $to->value;
+        $eventPayload = array_merge([
+            'visit_id' => $ticket->visit_id,
+            'station_id' => $ticket->station_id,
+        ], $payload);
 
         $ticket->update([
             'status' => $to,
@@ -94,6 +103,16 @@ class QueueStateMachine
             'from_status' => $fromValue,
             'to_status' => $toValue,
             'user_id' => $byUserId,
+            'payload' => $eventPayload,
+        ]);
+
+        AuditLog::create([
+            'user_id' => $byUserId,
+            'action' => 'QUEUE_TICKET_STATUS_CHANGED',
+            'auditable_type' => QueueTicket::class,
+            'auditable_id' => $ticket->id,
+            'old_values' => ['status' => $fromValue],
+            'new_values' => array_merge(['status' => $toValue], $eventPayload),
         ]);
 
         return true;

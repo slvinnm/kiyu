@@ -23,6 +23,7 @@ class PublicQueueDisplayController extends Controller
 
         return response()->json([
             'success' => true,
+            'message' => 'Public queue display retrieved successfully.',
             'data' => new PublicQueueDisplayResource($display),
         ]);
     }

@@ -35,6 +35,7 @@ class PatientVisitController extends Controller
 
         return response()->json([
             'success' => true,
+            'message' => 'Patient visits retrieved successfully.',
             'data' => VisitResource::collection($visits),
         ]);
     }
@@ -51,6 +52,7 @@ class PatientVisitController extends Controller
 
         return response()->json([
             'success' => true,
+            'message' => 'Patient visit retrieved successfully.',
             'data' => new VisitResource($visit),
         ]);
     }
@@ -63,6 +65,7 @@ class PatientVisitController extends Controller
 
         return response()->json([
             'success' => true,
+            'message' => 'Active patient queue retrieved successfully.',
             'data' => PatientQueueTicketResource::collection($tickets),
         ]);
     }

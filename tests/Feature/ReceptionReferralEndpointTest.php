@@ -23,7 +23,7 @@ it('registers a kiosk acquisition for a patient at reception', function (): void
     $visitId = $acquisitionResponse->json('data.visit.id');
 
     $this->actingAs($receptionist, 'sanctum')
-        ->postJson('/api/v1/reception/queue-acquisitions/' . $acquisition . '/register', [
+        ->postJson('/api/v1/reception/queue-acquisitions/'.$acquisition.'/register', [
             'patient_id' => $patient->id,
         ])
         ->assertOk()
@@ -83,7 +83,7 @@ it('rejects reception registration from another department', function (): void {
     ])->json('data.id');
 
     $this->actingAs($receptionist, 'sanctum')
-        ->postJson('/api/v1/reception/queue-acquisitions/' . $acquisition . '/register', [
+        ->postJson('/api/v1/reception/queue-acquisitions/'.$acquisition.'/register', [
             'patient_id' => $patient->id,
         ])->assertForbidden();
 });
@@ -104,7 +104,7 @@ it('creates and retrieves a referral for an authorized clinical user', function 
     ]);
 
     $referral = $this->actingAs($doctor, 'sanctum')
-        ->postJson('/api/v1/referrals/visits/' . $visit->id, [
+        ->postJson('/api/v1/referrals/visits/'.$visit->id, [
             'target_department_id' => $targetDepartment->id,
             'reason' => 'Laboratory examination',
         ])
@@ -112,7 +112,7 @@ it('creates and retrieves a referral for an authorized clinical user', function 
         ->assertJsonPath('data.target_department.id', $targetDepartment->id)
         ->json('data.id');
 
-    $this->getJson('/api/v1/referrals/' . $referral)
+    $this->getJson('/api/v1/referrals/'.$referral)
         ->assertOk()
         ->assertJsonPath('data.id', $referral);
 });
@@ -132,7 +132,7 @@ it('forbids a clinical user from another department from creating a referral', f
     ]);
 
     $this->actingAs($doctor, 'sanctum')
-        ->postJson('/api/v1/referrals/visits/' . $visit->id, [
+        ->postJson('/api/v1/referrals/visits/'.$visit->id, [
             'target_department_id' => $targetDepartment->id,
         ])->assertForbidden();
 });
