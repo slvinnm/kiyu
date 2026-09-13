@@ -28,7 +28,7 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware('auth:sanctum')->group(function () {
-        Route::prefix('patient')->group(function () {
+        Route::prefix('patient')->middleware('throttle:60,1')->group(function () {
             Route::get('/me', [PatientAuthController::class, 'me']);
             Route::get('/visits', [PatientVisitController::class, 'index']);
             Route::get('/visits/{visit}', [PatientVisitController::class, 'show']);
