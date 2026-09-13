@@ -268,6 +268,10 @@ class QueueService
                 throw new \LogicException('Current workflow step has no source station.');
             }
 
+            if (! $currentStep->stations()->whereKey($targetStation->id)->exists()) {
+                throw new \LogicException('Transfer target station is not allowed for this workflow step.');
+            }
+
             if ($targetStation->department_id !== $sourceStation->department_id || $targetStation->type !== $sourceStation->type) {
                 throw new \LogicException('Transfer target must be an active station of the same department and station type.');
             }
