@@ -7,8 +7,6 @@ use App\Models\QueueTicket;
 use App\Models\Station;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 class PublicQueueDisplayService
 {
@@ -21,20 +19,13 @@ class PublicQueueDisplayService
             ->where('code', $stationCode)
             ->where('is_active', true)
             ->with('department')
-            ->first();
-
-        if (! $station) {
-            throw ValidationException::withMessages([
-                'station' => 'The requested station is not available.',
-            ]);
-        }
+            ->firstOrFail();
 
         $today = Carbon::today();
 
         $tickets = QueueTicket::query()
             ->where('station_id', $station->id)
             ->whereDate('created_at', $today)
-            ->with(['station.department'])
             ->get();
 
         $current = $tickets
@@ -42,7 +33,11 @@ class PublicQueueDisplayService
                 QueueStatus::IN_PROGRESS->value,
                 QueueStatus::CALLED->value,
             ])
-            ->sortByDesc(fn (QueueTicket $ticket): int => $ticket->started_at?->getTimestamp() ?? $ticket->called_at?->getTimestamp() ?? 0)
+            ->sortByDesc(
+                fn (QueueTicket $ticket): int => $ticket->started_at?->getTimestamp()
+                    ?? $ticket->called_at?->getTimestamp()
+                    ?? 0,
+            )
             ->first();
 
         $upcoming = $tickets
@@ -54,7 +49,7 @@ class PublicQueueDisplayService
 
                 return $left->internal_sequence <=> $right->internal_sequence;
             })
-            ->take($upcomingLimit)
+            ->take(max(1, min($upcomingLimit, 10)))
             ->values();
 
         return [
