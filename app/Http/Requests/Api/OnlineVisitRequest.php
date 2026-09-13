@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Enums\UserRole;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -9,7 +10,7 @@ class OnlineVisitRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->role === UserRole::PATIENT;
     }
 
     public function rules(): array

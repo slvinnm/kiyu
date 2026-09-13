@@ -23,7 +23,11 @@ class QueueService
         ?QueueStateMachine $stateMachine = null,
         ?QueueSelector $selector = null,
         ?WorkflowEngine $workflowEngine = null
-    ) {}
+    ) {
+        $this->stateMachine = $stateMachine ?? new QueueStateMachine;
+        $this->selector = $selector ?? new QueueSelector;
+        $this->workflowEngine = $workflowEngine ?? new WorkflowEngine;
+    }
 
     public function callNext(int $stationId, ?int $calledByUserId = null): ?QueueTicket
     {
