@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\PatientQueueTicketResource;
 use App\Http\Resources\VisitResource;
 use App\Models\Visit;
 use App\Services\CheckInOnlineVisit;
+use App\Services\PatientQueueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,6 +16,7 @@ class PatientVisitController extends Controller
 {
     public function __construct(
         private CheckInOnlineVisit $checkInOnlineVisit,
+        private PatientQueueService $patientQueueService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -52,6 +55,21 @@ class PatientVisitController extends Controller
         return response()->json([
             'success' => true,
             'data' => new VisitResource($visit),
+        ]);
+    }
+
+    public function queue(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->role === UserRole::PATIENT, 403);
+
+        $patient = $request->user()->patient;
+        abort_unless($patient, 403, 'Authenticated user has no patient profile.');
+
+        $tickets = $this->patientQueueService->activeTickets($patient);
+
+        return response()->json([
+            'success' => true,
+            'data' => PatientQueueTicketResource::collection($tickets),
         ]);
     }
 
