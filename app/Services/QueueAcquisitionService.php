@@ -212,15 +212,8 @@ class QueueAcquisitionService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $terminalStatuses = [
-                QueueStatus::COMPLETED->value,
-                QueueStatus::SKIPPED->value,
-                QueueStatus::NO_SHOW->value,
-                QueueStatus::TRANSFERRED->value,
-            ];
-
             $hasProgressedTicket = $visit->queueTickets()
-                ->whereIn('status', $terminalStatuses)
+                ->where('status', '!=', QueueStatus::CREATED->value)
                 ->exists();
 
             if ($hasProgressedTicket) {
