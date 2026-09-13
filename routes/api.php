@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\PublicQueueDisplayController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
+use App\Http\Controllers\Api\VisitPriorityController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -57,6 +58,10 @@ Route::prefix('v1')->group(function () {
             Route::post('/tickets/{queueTicket}/no-show', [QueueController::class, 'noShow']);
             Route::post('/tickets/{queueTicket}/cancel', [QueueController::class, 'cancel']);
             Route::post('/tickets/{queueTicket}/transfer', [QueueController::class, 'transfer']);
+        });
+
+        Route::prefix('priority')->group(function () {
+            Route::patch('/visits/{visit}', [VisitPriorityController::class, 'update']);
         });
 
         Route::prefix('referrals')->group(function () {
