@@ -5,10 +5,14 @@ namespace App\Services;
 use App\Enums\IntakeChannel;
 use App\Enums\Priority;
 use App\Enums\QueueAcquisitionStatus;
+use App\Enums\QueueStatus;
 use App\Enums\VisitStatus;
+use App\Enums\VisitWorkflowStatus;
+use App\Enums\VisitWorkflowStepStatus;
 use App\Models\Department;
 use App\Models\Patient;
 use App\Models\QueueAcquisition;
+use App\Models\QueueTicket;
 use App\Models\User;
 use App\Models\Visit;
 use App\Models\VisitCounter;
@@ -203,11 +207,72 @@ class QueueAcquisitionService
                 ]);
             }
 
+            $visit = Visit::query()
+                ->whereKey($lockedAcquisition->visit_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $terminalStatuses = [
+                QueueStatus::COMPLETED->value,
+                QueueStatus::SKIPPED->value,
+                QueueStatus::NO_SHOW->value,
+                QueueStatus::TRANSFERRED->value,
+            ];
+
+            $hasProgressedTicket = $visit->queueTickets()
+                ->whereIn('status', $terminalStatuses)
+                ->exists();
+
+            if ($hasProgressedTicket) {
+                throw ValidationException::withMessages([
+                    'acquisition' => 'A queue that has already progressed cannot be cancelled through kiosk acquisition.',
+                ]);
+            }
+
+            $stateMachine = new QueueStateMachine;
+            $activeTickets = QueueTicket::query()
+                ->where('visit_id', $visit->id)
+                ->whereIn('status', [
+                    QueueStatus::CREATED->value,
+                    QueueStatus::CALLED->value,
+                    QueueStatus::IN_PROGRESS->value,
+                    QueueStatus::ON_HOLD->value,
+                ])
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($activeTickets as $ticket) {
+                $stateMachine->apply($ticket, QueueStatus::CANCELLED);
+            }
+
+            $visitWorkflow = $visit->visitWorkflow()
+                ->lockForUpdate()
+                ->first();
+
+            if ($visitWorkflow) {
+                $visitWorkflow->update([
+                    'status' => VisitWorkflowStatus::CANCELLED->value,
+                ]);
+
+                $visitWorkflow->steps()
+                    ->whereIn('status', [
+                        VisitWorkflowStepStatus::PENDING->value,
+                        VisitWorkflowStepStatus::IN_PROGRESS->value,
+                    ])
+                    ->update([
+                        'status' => VisitWorkflowStepStatus::CANCELLED->value,
+                    ]);
+            }
+
+            $visit->update([
+                'status' => VisitStatus::CANCELLED->value,
+            ]);
+
             $lockedAcquisition->update([
                 'status' => QueueAcquisitionStatus::CANCELLED->value,
             ]);
 
-            return $lockedAcquisition->fresh(['department', 'visit.queueTickets']);
+            return $lockedAcquisition->fresh(['department', 'visit.visitWorkflow', 'visit.queueTickets']);
         });
     }
 
