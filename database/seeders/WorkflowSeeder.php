@@ -92,5 +92,25 @@ class WorkflowSeeder extends Seeder
         foreach ($stepsGigi as $step) {
             WorkflowStep::create($step);
         }
+
+        // Create workflow for Poli Mata
+        $workMata = Workflow::create([
+            'department_id' => $deptMata->id,
+            'name' => 'Poli Mata Workflow',
+            'is_active' => true,
+        ]);
+        $verMata = WorkflowVersion::create([
+            'workflow_id' => $workMata->id,
+            'version_number' => 1,
+            'is_active' => true,
+            'published_at' => now(),
+        ]);
+        $stepsMata = [
+            ['workflow_version_id' => $verMata->id, 'station_id' => $stationRegMata->id, 'name' => 'Registration', 'sequence' => 1, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+            ['workflow_version_id' => $verMata->id, 'station_id' => $stationDocMata->id, 'name' => 'Doctor Consultation', 'sequence' => 2, 'requires_queue' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false],
+        ];
+        foreach ($stepsMata as $step) {
+            WorkflowStep::create($step);
+        }
     }
 }

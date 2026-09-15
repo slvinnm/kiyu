@@ -17,7 +17,7 @@ class PatientFactory extends Factory
             'user_id' => null,
             'medical_record_number' => 'MRN-'.strtoupper(Str::random(8)),
             'name' => fake()->name(),
-            'national_id' => fake()->numerify('################'),
+            'national_id' => fake()->nik(),
             'date_of_birth' => fake()->date('Y-m-d', '2018-01-01'),
             'gender' => fake()->randomElement(['male', 'female']),
             'phone' => fake()->numerify('08##########'),

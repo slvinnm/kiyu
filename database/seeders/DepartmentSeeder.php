@@ -14,14 +14,14 @@ class DepartmentSeeder extends Seeder
     {
         // Create departments/policlinics
         $departments = [
-            ['name' => 'Poliklinik Umum', 'code' => 'POLIUM', 'is_active' => true],
-            ['name' => 'Poliklinik Anak', 'code' => 'POLIA', 'is_active' => true],
-            ['name' => 'Poliklinik Gigi', 'code' => 'POLIGI', 'is_active' => true],
-            ['name' => 'Poliklinik Mata', 'code' => 'POLIM', 'is_active' => true],
-            ['name' => 'Poliklinik Kandungan', 'code' => 'POLKB', 'is_active' => true],
-            ['name' => 'Laboratorium Klinik', 'code' => 'LAB', 'is_active' => true],
-            ['name' => 'Apotek', 'code' => 'APOTEK', 'is_active' => true],
-            ['name' => 'Radiologi', 'code' => 'RAD', 'is_active' => true],
+            ['name' => 'Poliklinik Umum', 'code' => 'POLIUM', 'is_active' => true], // 1
+            ['name' => 'Poliklinik Anak', 'code' => 'POLIA', 'is_active' => true], // 2
+            ['name' => 'Poliklinik Gigi', 'code' => 'POLIGI', 'is_active' => true], // 3
+            ['name' => 'Poliklinik Mata', 'code' => 'POLIM', 'is_active' => true], // 4
+            ['name' => 'Poliklinik Kandungan', 'code' => 'POLKB', 'is_active' => true], // 5
+            ['name' => 'Laboratorium Klinik', 'code' => 'LAB', 'is_active' => true], // 6
+            ['name' => 'Apotek', 'code' => 'APOTEK', 'is_active' => true], // 7
+            ['name' => 'Radiologi', 'code' => 'RAD', 'is_active' => true], // 8
         ];
 
         foreach ($departments as $dept) {
