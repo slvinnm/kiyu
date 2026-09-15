@@ -1,5 +1,6 @@
 import { createInertiaApp } from '@inertiajs/react';
 import { ThemeProvider } from "@/components/theme-provider"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -8,7 +9,9 @@ void createInertiaApp({
     withApp(app) {
         return (
             <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-                {app}
+                <TooltipProvider>
+                    {app}
+                </TooltipProvider>
             </ThemeProvider>
         );
     },
