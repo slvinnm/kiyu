@@ -1,0 +1,20 @@
+@keyframes kiosk-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-kiosk-marquee {
+  animation: kiosk-marquee 35s linear infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-kiosk-marquee {
+    animation: none;
+  }
+}
