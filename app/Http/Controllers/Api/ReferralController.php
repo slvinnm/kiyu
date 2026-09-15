@@ -15,9 +15,7 @@ use Illuminate\Support\Facades\Gate;
 
 class ReferralController extends Controller
 {
-    public function __construct(
-        private ReferralService $referralService,
-    ) {}
+    public function __construct(private ReferralService $referralService) {}
 
     public function store(
         CreateReferralRequest $request,

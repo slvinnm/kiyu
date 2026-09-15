@@ -20,7 +20,7 @@ class UpdateVisitPriorityRequest extends FormRequest
                 'required',
                 'integer',
                 Rule::in(array_map(
-                    static fn (Priority $priority): int => $priority->value,
+                    static fn(Priority $priority): int => $priority->value,
                     Priority::cases(),
                 )),
             ],

@@ -21,7 +21,7 @@ class OnlineVisitRequest extends FormRequest
                 'string',
                 'max:50',
                 Rule::exists('departments', 'code')->where(
-                    fn ($query) => $query->where('is_active', true)
+                    fn($query) => $query->where('is_active', true)
                 ),
             ],
         ];

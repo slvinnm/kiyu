@@ -19,11 +19,7 @@ use Illuminate\Validation\ValidationException;
 
 class WorkflowEngine
 {
-    public function __construct(
-        private ?WorkflowRequirementEvaluator $requirementEvaluator = null,
-    ) {
-        $this->requirementEvaluator ??= new WorkflowRequirementEvaluator;
-    }
+    public function __construct(private WorkflowRequirementEvaluator $requirementEvaluator) {}
 
     public function createFromIntake(
         Visit $visit,
@@ -194,7 +190,7 @@ class WorkflowEngine
 
         if ($reason) {
             $ticket->update([
-                'notes' => $reason.($ticket->notes ? " | {$ticket->notes}" : ''),
+                'notes' => $reason . ($ticket->notes ? " | {$ticket->notes}" : ''),
             ]);
         }
 

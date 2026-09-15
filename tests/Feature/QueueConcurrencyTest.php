@@ -84,7 +84,7 @@ it('does not call another ticket while a station has an active ticket', function
     expect($called->id)->toBe($firstTicket->id);
     expect($firstTicket->fresh()->status)->toBe(QueueStatus::CALLED);
 
-    expect(fn () => $queue->callNext($fixture['station']->id))
+    expect(fn() => $queue->callNext($fixture['station']->id))
         ->toThrow(ValidationException::class);
 
     expect($secondTicket->fresh()->status)->toBe(QueueStatus::CREATED);
@@ -108,7 +108,7 @@ it('prevents a completed ticket from being completed twice', function () {
     expect($ticket->fresh()->status)->toBe(QueueStatus::COMPLETED);
     expect($visit->fresh()->status)->toBe(VisitStatus::COMPLETED);
 
-    expect(fn () => $queue->completeTicket($ticket->id))
+    expect(fn() => $queue->completeTicket($ticket->id))
         ->toThrow(ValidationException::class);
 
     expect($ticket->fresh()->status)->toBe(QueueStatus::COMPLETED);

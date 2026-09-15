@@ -24,7 +24,7 @@ class ReceptionVisitRequest extends FormRequest
                 'string',
                 'max:50',
                 Rule::exists('departments', 'code')->where(
-                    fn ($query) => $query->where('is_active', true),
+                    fn($query) => $query->where('is_active', true),
                 ),
             ],
             'patient_id' => ['nullable', 'integer', 'exists:patients,id', 'required_without:name'],

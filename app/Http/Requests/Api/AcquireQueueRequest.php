@@ -19,7 +19,7 @@ class AcquireQueueRequest extends FormRequest
                 'required',
                 'string',
                 'max:50',
-                Rule::exists('departments', 'code')->where(fn ($query) => $query->where('is_active', true)),
+                Rule::exists('departments', 'code')->where(fn($query) => $query->where('is_active', true)),
             ],
             'idempotency_key' => [
                 'nullable',

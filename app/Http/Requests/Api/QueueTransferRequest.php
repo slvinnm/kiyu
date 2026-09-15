@@ -19,7 +19,7 @@ class QueueTransferRequest extends FormRequest
                 'required',
                 'integer',
                 Rule::exists('stations', 'id')->where(
-                    fn ($query) => $query->where('is_active', true)
+                    fn($query) => $query->where('is_active', true)
                 ),
             ],
         ];

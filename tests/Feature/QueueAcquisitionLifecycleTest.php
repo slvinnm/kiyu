@@ -111,7 +111,7 @@ it('does not allow cancellation after the queue has progressed', function () {
     $queue->callNext($fixture['station']->id);
     $queue->startTicket($ticket->id);
 
-    expect(fn () => $service->cancel($acquisition))
+    expect(fn() => $service->cancel($acquisition))
         ->toThrow(ValidationException::class);
 
     expect($acquisition->fresh()->status)->toBe(QueueAcquisitionStatus::ACQUIRED);

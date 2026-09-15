@@ -12,9 +12,7 @@ use Illuminate\Http\JsonResponse;
 
 class VisitPriorityController extends Controller
 {
-    public function __construct(
-        private UpdateVisitPriority $updateVisitPriority,
-    ) {}
+    public function __construct(private UpdateVisitPriority $updateVisitPriority) {}
 
     public function update(UpdateVisitPriorityRequest $request, Visit $visit): JsonResponse
     {

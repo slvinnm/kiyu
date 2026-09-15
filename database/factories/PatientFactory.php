@@ -15,7 +15,7 @@ class PatientFactory extends Factory
     {
         return [
             'user_id' => null,
-            'medical_record_number' => 'MRN-'.strtoupper(Str::random(8)),
+            'medical_record_number' => 'MRN-' . strtoupper(Str::random(8)),
             'name' => fake()->name(),
             'national_id' => fake()->nik(),
             'date_of_birth' => fake()->date('Y-m-d', '2018-01-01'),
@@ -28,7 +28,7 @@ class PatientFactory extends Factory
 
     public function withUser(): static
     {
-        return $this->state(fn (array $attributes) => [
+        return $this->state(fn(array $attributes) => [
             'user_id' => User::factory(),
         ]);
     }

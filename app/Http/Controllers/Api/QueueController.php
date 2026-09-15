@@ -17,9 +17,7 @@ use Illuminate\Http\JsonResponse;
 
 class QueueController extends Controller
 {
-    public function __construct(
-        private QueueService $queueService,
-    ) {}
+    public function __construct(private QueueService $queueService) {}
 
     public function stations(): JsonResponse
     {

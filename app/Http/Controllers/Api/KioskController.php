@@ -11,15 +11,13 @@ use Illuminate\Http\JsonResponse;
 
 class KioskController extends Controller
 {
-    public function __construct(
-        private QueueAcquisitionService $queueAcquisitionService,
-    ) {}
+    public function __construct(private QueueAcquisitionService $queueAcquisitionService) {}
 
     public function departments(): JsonResponse
     {
         $departments = Department::query()
             ->where('is_active', true)
-            ->whereHas('workflows', fn ($query) => $query->where('is_active', true))
+            ->whereHas('workflows', fn($query) => $query->where('is_active', true))
             ->orderBy('name')
             ->get(['id', 'code', 'name']);
 

@@ -19,7 +19,7 @@ class VisitFactory extends Factory
             'patient_id' => Patient::factory(),
             'department_id' => 1,
             'workflow_version_id' => 1,
-            'visit_number' => 'V-'.now()->format('Ymd').'-'.str_pad($this->faker->unique()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
+            'visit_number' => 'V-' . now()->format('Ymd') . '-' . str_pad($this->faker->unique()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
             'priority' => Priority::NORMAL,
             'intake_channel' => IntakeChannel::WALK_IN,
             'status' => VisitStatus::WAITING,

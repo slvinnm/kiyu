@@ -25,7 +25,7 @@ class PublicQueueDisplayResource extends JsonResource
                 'called_at' => $this['current']->called_at?->toISOString(),
                 'started_at' => $this['current']->started_at?->toISOString(),
             ] : null,
-            'upcoming' => $this['upcoming']->map(fn ($ticket): array => [
+            'upcoming' => $this['upcoming']->map(fn($ticket): array => [
                 'queue_number' => $ticket->queue_number,
                 'status' => $ticket->status?->value,
             ])->values()->all(),

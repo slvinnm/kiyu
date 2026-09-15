@@ -43,7 +43,7 @@ class PublicQueueDisplayService
             ->where('created_at', '>=', $today)
             ->where('created_at', '<', $tomorrow)
             ->where('status', QueueStatus::CREATED->value)
-            ->whereHas('visit', fn ($query) => $query->where('status', VisitStatus::WAITING->value))
+            ->whereHas('visit', fn($query) => $query->where('status', VisitStatus::WAITING->value))
             ->with(['station', 'visit', 'visitWorkflowStep.workflowStep'])
             ->orderByDesc('priority')
             ->orderBy('internal_sequence')

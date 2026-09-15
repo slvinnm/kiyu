@@ -40,7 +40,7 @@ class PatientQueueService
                     VisitStatus::WAITING->value,
                 ],
             )
-            ->whereHas('visit', fn ($query) => $query->where('patient_id', $patient->id))
+            ->whereHas('visit', fn($query) => $query->where('patient_id', $patient->id))
             ->whereIn('status', [
                 QueueStatus::CREATED->value,
                 QueueStatus::CALLED->value,

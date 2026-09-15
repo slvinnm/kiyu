@@ -53,8 +53,8 @@ class QueueNumberGenerator
         $counter->increment('last_internal_sequence');
         $counter->refresh();
 
-        $queueNumber = $prefix.'-'
-            .str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
+        $queueNumber = $prefix . '-'
+            . str_pad($counter->last_queue_number, 3, '0', STR_PAD_LEFT);
 
         return [
             'queue_number' => $queueNumber,

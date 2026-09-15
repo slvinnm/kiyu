@@ -15,21 +15,11 @@ use Illuminate\Validation\ValidationException;
 
 class QueueService
 {
-    protected QueueStateMachine $stateMachine;
-
-    protected QueueSelector $selector;
-
-    protected WorkflowEngine $workflowEngine;
-
     public function __construct(
-        ?QueueStateMachine $stateMachine = null,
-        ?QueueSelector $selector = null,
-        ?WorkflowEngine $workflowEngine = null
-    ) {
-        $this->stateMachine = $stateMachine ?? new QueueStateMachine;
-        $this->selector = $selector ?? new QueueSelector;
-        $this->workflowEngine = $workflowEngine ?? new WorkflowEngine;
-    }
+        protected QueueStateMachine $stateMachine,
+        protected QueueSelector $selector,
+        protected WorkflowEngine $workflowEngine,
+    ) {}
 
     public function callNext(int $stationId, ?int $calledByUserId = null): ?QueueTicket
     {

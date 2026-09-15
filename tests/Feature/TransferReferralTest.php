@@ -120,7 +120,7 @@ it('rejects transfer to a station outside the current workflow step', function (
     $visit = createTransferReferralVisit($fixture);
     $ticket = $visit->queueTickets()->sole();
 
-    expect(fn () => app(QueueService::class)->transferTicket(
+    expect(fn() => app(QueueService::class)->transferTicket(
         ticketId: $ticket->id,
         targetStationId: $fixture['unrelatedStation']->id,
     ))->toThrow(LogicException::class, 'Transfer target station is not allowed for this workflow step.');
@@ -233,7 +233,7 @@ it('rejects duplicate active referrals into the same target visit', function () 
         targetDepartmentId: $targetDepartment->id,
     );
 
-    expect(fn () => $referralService->create(
+    expect(fn() => $referralService->create(
         sourceVisitId: $sourceVisit->id,
         targetDepartmentId: $targetDepartment->id,
     ))->toThrow(ValidationException::class);
@@ -250,7 +250,7 @@ it('rejects referrals from completed visits', function () {
         'is_active' => true,
     ]);
 
-    expect(fn () => app(ReferralService::class)->create(
+    expect(fn() => app(ReferralService::class)->create(
         sourceVisitId: $sourceVisit->id,
         targetDepartmentId: $targetDepartment->id,
     ))->toThrow(ValidationException::class);

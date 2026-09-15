@@ -21,7 +21,7 @@ it('updates visit priority for authorized clinical staff and persists the audit'
     ]);
 
     $this->actingAs($doctor, 'sanctum')
-        ->patchJson('/api/v1/priority/visits/'.$visit->id, [
+        ->patchJson('/api/v1/priority/visits/' . $visit->id, [
             'priority' => Priority::EMERGENCY->value,
         ])
         ->assertOk()
@@ -44,7 +44,7 @@ it('rejects invalid priority values at the endpoint', function (): void {
     ]);
 
     $this->actingAs($doctor, 'sanctum')
-        ->patchJson('/api/v1/priority/visits/'.$visit->id, ['priority' => 99])
+        ->patchJson('/api/v1/priority/visits/' . $visit->id, ['priority' => 99])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['priority']);
 });
@@ -62,7 +62,7 @@ it('forbids clinical staff from another department from changing priority', func
     ]);
 
     $this->actingAs($doctor, 'sanctum')
-        ->patchJson('/api/v1/priority/visits/'.$visit->id, [
+        ->patchJson('/api/v1/priority/visits/' . $visit->id, [
             'priority' => Priority::PRIORITY->value,
         ])->assertForbidden();
 });

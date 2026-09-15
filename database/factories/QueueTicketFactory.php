@@ -18,7 +18,7 @@ class QueueTicketFactory extends Factory
             'visit_id' => Visit::factory(),
             'visit_workflow_step_id' => 1,
             'station_id' => 1,
-            'queue_number' => 'A-'.str_pad($this->faker->unique()->numberBetween(1, 999), 3, '0', STR_PAD_LEFT),
+            'queue_number' => 'A-' . str_pad($this->faker->unique()->numberBetween(1, 999), 3, '0', STR_PAD_LEFT),
             'priority' => Priority::NORMAL,
             'internal_sequence' => 1,
             'status' => QueueStatus::CREATED,

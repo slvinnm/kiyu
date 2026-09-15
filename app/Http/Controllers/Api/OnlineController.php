@@ -10,9 +10,7 @@ use Illuminate\Http\JsonResponse;
 
 class OnlineController extends Controller
 {
-    public function __construct(
-        private CreateOnlineVisit $createOnlineVisit,
-    ) {}
+    public function __construct(private CreateOnlineVisit $createOnlineVisit) {}
 
     public function store(OnlineVisitRequest $request): JsonResponse
     {

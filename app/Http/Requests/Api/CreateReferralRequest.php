@@ -20,7 +20,7 @@ class CreateReferralRequest extends FormRequest
                 'required',
                 'integer',
                 Rule::exists('departments', 'id')->where(
-                    fn ($query) => $query->where('is_active', true)
+                    fn($query) => $query->where('is_active', true)
                 ),
             ],
             'reason' => ['nullable', 'string', 'max:2000'],
@@ -28,7 +28,7 @@ class CreateReferralRequest extends FormRequest
                 'nullable',
                 'integer',
                 Rule::in(array_map(
-                    static fn (Priority $priority): int => $priority->value,
+                    static fn(Priority $priority): int => $priority->value,
                     Priority::cases(),
                 )),
             ],

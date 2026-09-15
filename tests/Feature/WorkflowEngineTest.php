@@ -229,7 +229,7 @@ it('blocks completion when completion requirements are not satisfied', function 
     $queue->callNext($fixture['registration']->id);
     $queue->startTicket($ticket->id);
 
-    expect(fn () => $queue->completeTicket($ticket->id, null, [
+    expect(fn() => $queue->completeTicket($ticket->id, null, [
         'clinical' => ['registration_verified' => false],
     ]))->toThrow(ValidationException::class);
 

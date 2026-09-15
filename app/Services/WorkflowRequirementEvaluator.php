@@ -33,12 +33,12 @@ class WorkflowRequirementEvaluator
 
         if (array_key_exists('all', $requirements)) {
             return collect($requirements['all'])
-                ->every(fn ($condition) => $this->evaluateNode($condition, $context));
+                ->every(fn($condition) => $this->evaluateNode($condition, $context));
         }
 
         if (array_key_exists('any', $requirements)) {
             return collect($requirements['any'])
-                ->contains(fn ($condition) => $this->evaluateNode($condition, $context));
+                ->contains(fn($condition) => $this->evaluateNode($condition, $context));
         }
 
         return $this->evaluateNode($requirements, $context);
@@ -48,12 +48,12 @@ class WorkflowRequirementEvaluator
     {
         if (array_key_exists('all', $condition)) {
             return collect($condition['all'])
-                ->every(fn ($node) => $this->evaluateNode($node, $context));
+                ->every(fn($node) => $this->evaluateNode($node, $context));
         }
 
         if (array_key_exists('any', $condition)) {
             return collect($condition['any'])
-                ->contains(fn ($node) => $this->evaluateNode($node, $context));
+                ->contains(fn($node) => $this->evaluateNode($node, $context));
         }
 
         $path = $condition['path'] ?? null;

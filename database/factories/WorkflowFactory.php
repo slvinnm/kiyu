@@ -14,7 +14,7 @@ class WorkflowFactory extends Factory
     {
         return [
             'department_id' => Department::factory(),
-            'name' => fake()->words(3, true).' Workflow',
+            'name' => fake()->words(3, true) . ' Workflow',
             'is_active' => true,
         ];
     }

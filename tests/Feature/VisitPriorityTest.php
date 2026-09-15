@@ -85,7 +85,7 @@ it('rejects staff from another department', function () {
         'department_id' => $otherDepartment->id,
     ]);
 
-    expect(fn () => app(UpdateVisitPriority::class)->handle(
+    expect(fn() => app(UpdateVisitPriority::class)->handle(
         visit: $fixture['visit'],
         priority: Priority::PRIORITY,
         user: $user,

@@ -10,9 +10,7 @@ use Illuminate\Http\Request;
 
 class PublicQueueDisplayController extends Controller
 {
-    public function __construct(
-        private PublicQueueDisplayService $publicQueueDisplayService,
-    ) {}
+    public function __construct(private PublicQueueDisplayService $publicQueueDisplayService) {}
 
     public function show(Request $request, string $station): JsonResponse
     {
