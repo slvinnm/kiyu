@@ -18,6 +18,11 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 type Department = {
   id: number
@@ -135,7 +140,7 @@ export default function Kiosk() {
   const [loadingDepartments, setLoadingDepartments] = useState(true)
   const [departmentError, setDepartmentError] = useState<string | null>(null)
 
-  const [now, setNow] = useState(new Date())
+  const [now, setNow] = useState<Date | null>(null)
   const [secondsRemaining, setSecondsRemaining] = useState(SUCCESS_RESET_DELAY)
 
   const [state, setState] = useState<KioskState>({
@@ -150,6 +155,8 @@ export default function Kiosk() {
    * Realtime clock
    */
   useEffect(() => {
+    setNow(new Date())
+
     const timer = window.setInterval(() => {
       setNow(new Date())
     }, 1000)
@@ -405,11 +412,11 @@ export default function Kiosk() {
                 {/* Realtime Date & Clock */}
                 <div className="hidden text-right sm:block">
                   <div className="text-2xl font-bold tabular-nums tracking-tight text-foreground md:text-3xl">
-                    {formatTime(now)}
+                    {now ? formatTime(now) : '--:--:--'}
                   </div>
 
                   <div className="mt-1 text-sm font-medium capitalize text-muted-foreground">
-                    {formatDate(now)}
+                    {now ? formatDate(now) : 'Memuat waktu...'}
                   </div>
                 </div>
 
@@ -422,7 +429,7 @@ export default function Kiosk() {
               <Clock3 className="size-4 text-muted-foreground" />
 
               <span className="font-bold tabular-nums text-foreground">
-                {formatTime(now)}
+                {now ? formatTime(now) : '--:--:--'}
               </span>
 
               <span className="text-border">
@@ -430,7 +437,7 @@ export default function Kiosk() {
               </span>
 
               <span className="text-sm capitalize text-muted-foreground">
-                {formatDate(now)}
+                {now ? formatDate(now) : 'Memuat waktu...'}
               </span>
             </div>
           </header>
@@ -507,72 +514,81 @@ export default function Kiosk() {
                           department.code
 
                         return (
-                          <button
-                            key={
-                              department.id
-                            }
-                            type="button"
-                            disabled={
-                              isLoading ||
-                              anotherLoading
-                            }
-                            onClick={() =>
-                              acquireQueue(
-                                department,
-                              )
-                            }
-                            className="group text-left"
-                          >
-                            <Card
-                              className="relative min-h-[190px] overflow-hidden rounded-3xl border border-border bg-card p-7 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-ring hover:shadow-xl active:translate-y-0 disabled:opacity-60"
-                            >
-                              <div className="flex h-full flex-col justify-between">
-                                <div className="flex items-start justify-between">
-                                  <div className="flex size-14 items-center justify-center rounded-2xl bg-background text-xl font-bold text-foreground">
-                                    {department.code.slice(
-                                      -2,
-                                    )}
-                                  </div>
+                          <Tooltip key={department.id}>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  disabled={
+                                    isLoading ||
+                                    anotherLoading
+                                  }
+                                  onClick={() =>
+                                    acquireQueue(
+                                      department,
+                                    )
+                                  }
+                                  className="group w-full text-left disabled:cursor-not-allowed"
+                                >
+                                  <Card
+                                    className="relative min-h-[190px] overflow-hidden rounded-3xl border border-border bg-card p-7 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-ring hover:shadow-xl active:translate-y-0 disabled:opacity-60"
+                                  >
+                                    <div className="flex h-full flex-col justify-between">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex size-14 items-center justify-center rounded-2xl bg-muted text-xl font-bold text-foreground">
+                                          {department.code.slice(-2)}
+                                        </div>
 
-                                  <div className="flex size-10 items-center justify-center rounded-full border border-border text-muted-foreground transition-all group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground">
-                                    {isLoading ? (
-                                      <Loader2 className="size-5 animate-spin" />
-                                    ) : (
-                                      <ChevronRight className="size-5" />
-                                    )}
-                                  </div>
-                                </div>
+                                        <div className="flex size-10 items-center justify-center rounded-full border border-border text-muted-foreground transition-all group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground">
+                                          {isLoading ? (
+                                            <Loader2 className="size-5 animate-spin" />
+                                          ) : (
+                                            <ChevronRight className="size-5" />
+                                          )}
+                                        </div>
+                                      </div>
 
-                                <div className="mt-8">
-                                  <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                    {
-                                      department.code
-                                    }
-                                  </p>
+                                      <div className="mt-8">
+                                        <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                          {
+                                            department.code
+                                          }
+                                        </p>
 
-                                  <h3 className="text-xl font-bold leading-tight text-foreground md:text-2xl">
-                                    {
-                                      department.name
-                                    }
-                                  </h3>
+                                        <h3 className="text-xl font-bold leading-tight text-foreground md:text-2xl">
+                                          {
+                                            department.name
+                                          }
+                                        </h3>
 
-                                  <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-                                    {isLoading ? (
-                                      <>
-                                        <Loader2 className="size-4 animate-spin" />
-                                        Mengambil nomor...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Ticket className="size-4" />
-                                        Tekan untuk mengambil antrean
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </Card>
-                          </button>
+                                        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                                          {isLoading ? (
+                                            <>
+                                              <Loader2 className="size-4 animate-spin" />
+                                              Mengambil nomor...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Ticket className="size-4" />
+                                              Tekan untuk mengambil antrean
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </Card>
+                                </button>
+                              }
+                            />
+
+                            <TooltipContent side='bottom'>
+                              <p>
+                                {isLoading
+                                  ? 'Sedang mengambil nomor antrean'
+                                  : `Ambil nomor antrean ${department.name}`}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
                         )
                       },
                     )}
@@ -694,35 +710,48 @@ export default function Kiosk() {
 }
 
 function ModeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
 
-  const isDark = resolvedTheme === 'dark'
+  const isDark = theme === 'dark'
 
   const toggleTheme = () => {
     setTheme(isDark ? 'light' : 'dark')
   }
 
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="icon"
-      onClick={toggleTheme}
-      aria-label={isDark ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
-      aria-pressed={isDark}
-      title={isDark ? 'Mode terang' : 'Mode gelap'}
-      className="size-10 rounded-xl"
-    >
-      {isDark ? (
-        <Sun className="size-4" />
-      ) : (
-        <Moon className="size-4" />
-      )}
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={toggleTheme}
+            aria-label={
+              isDark
+                ? 'Gunakan mode terang'
+                : 'Gunakan mode gelap'
+            }
+            aria-pressed={isDark}
+            className="size-10 rounded-xl"
+          >
+            {isDark ? (
+              <Sun className="size-4" />
+            ) : (
+              <Moon className="size-4" />
+            )}
+          </Button>
+        }
+      />
 
-      <span className="sr-only">
-        {isDark ? 'Ganti ke mode terang' : 'Ganti ke mode gelap'}
-      </span>
-    </Button>
+      <TooltipContent side="bottom">
+        <p>
+          {isDark
+            ? 'Gunakan mode terang'
+            : 'Gunakan mode gelap'}
+        </p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -744,9 +773,22 @@ function SuccessScreen({
       <Card className="w-full overflow-hidden rounded-3xl">
         <div className="px-6 py-8 md:px-10 md:py-10">
           <div className="text-center">
-            <div className="mx-auto flex size-12 items-center justify-center rounded-xl border bg-muted">
-              <CheckCircle2 className="size-6" />
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div
+                    tabIndex={0}
+                    className="mx-auto flex size-12 cursor-help items-center justify-center rounded-xl border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    <CheckCircle2 className="size-6" />
+                  </div>
+                }
+              />
+
+              <TooltipContent>
+                <p>Nomor antrean berhasil dibuat</p>
+              </TooltipContent>
+            </Tooltip>
 
             <p className="mt-4 text-sm font-medium text-muted-foreground">
               Pengambilan nomor antrean berhasil
@@ -807,34 +849,70 @@ function SuccessScreen({
                 Status
               </p>
 
-              <p className="mt-1 text-sm font-semibold">
-                {acquisition.queue_ticket.status}
-              </p>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      tabIndex={0}
+                      className="mt-1 inline-flex cursor-help font-mono text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      {acquisition.queue_ticket.status}
+                    </span>
+                  }
+                />
+
+                <TooltipContent>
+                  <p>Status nomor antrean saat ini</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
           <div className="mx-auto mt-6 max-w-xl border-t pt-5">
             <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock3 className="size-4 shrink-0" />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div
+                      tabIndex={0}
+                      className="flex cursor-help items-center gap-2 text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <Clock3 className="size-4 shrink-0" />
 
-                <span>
-                  Kembali ke awal dalam {' '}
-                  <span className="font-semibold text-foreground">
-                    {secondsRemaining} detik
-                  </span>
-                </span>
-              </div>
+                      <span>
+                        Kembali ke awal dalam{' '}
+                        <span className="font-semibold text-foreground">
+                          {secondsRemaining} detik
+                        </span>
+                      </span>
+                    </div>
+                  }
+                />
 
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onReset}
-                className="h-10 rounded-lg"
-              >
-                <RotateCcw className="mr-2 size-4" />
-                Kembali sekarang
-              </Button>
+                <TooltipContent>
+                  <p>Halaman akan kembali otomatis setelah hitungan selesai</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={onReset}
+                      className="h-10 rounded-lg"
+                    >
+                      <RotateCcw className="mr-2 size-4" />
+                      Kembali sekarang
+                    </Button>
+                  }
+                />
+
+                <TooltipContent>
+                  <p>Kembali ke halaman pemilihan poliklinik</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -858,9 +936,22 @@ function ErrorScreen({
     <div className="flex w-full max-w-xl items-center justify-center">
       <Card className="w-full rounded-3xl">
         <div className="px-6 py-8 text-center md:px-10 md:py-10">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-xl border bg-muted">
-            <XCircle className="size-6" />
-          </div>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div
+                  tabIndex={0}
+                  className="mx-auto flex size-12 cursor-help items-center justify-center rounded-xl border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <XCircle className="size-6" />
+                </div>
+              }
+            />
+
+            <TooltipContent>
+              <p>Permintaan tidak berhasil diproses</p>
+            </TooltipContent>
+          </Tooltip>
 
           <p className="mt-4 text-sm font-medium text-muted-foreground">
             Permintaan tidak dapat diproses
@@ -878,9 +969,22 @@ function ErrorScreen({
 
           <div className="mx-auto mt-6 max-w-md rounded-xl border bg-muted/30 px-5 py-4 text-left">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background">
-                <WifiOff className="size-4" />
-              </div>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div
+                      tabIndex={0}
+                      className="mt-0.5 flex size-8 shrink-0 cursor-help items-center justify-center rounded-lg border bg-background outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <WifiOff className="size-4" />
+                    </div>
+                  }
+                />
+
+                <TooltipContent>
+                  <p>Periksa koneksi atau coba kembali</p>
+                </TooltipContent>
+              </Tooltip>
 
               <div>
                 <p className="text-sm font-medium">
@@ -900,24 +1004,44 @@ function ErrorScreen({
           </p>
 
           <div className="mx-auto mt-7 flex max-w-md flex-col-reverse gap-2 sm:flex-row">
-            <Button
-              size="default"
-              variant="outline"
-              onClick={onReset}
-              className="h-10 flex-1 rounded-lg"
-            >
-              <RotateCcw className="mr-2 size-4" />
-              Kembali
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="default"
+                    variant="outline"
+                    onClick={onReset}
+                    className="h-10 flex-1 rounded-lg"
+                  >
+                    <RotateCcw className="mr-2 size-4" />
+                    Kembali
+                  </Button>
+                }
+              />
 
-            <Button
-              size="default"
-              onClick={onRetry}
-              className="h-10 flex-1 rounded-lg"
-            >
-              <RefreshCw className="mr-2 size-4" />
-              Coba Lagi
-            </Button>
+              <TooltipContent>
+                <p>Kembali ke pilihan poliklinik</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="default"
+                    onClick={onRetry}
+                    className="h-10 flex-1 rounded-lg"
+                  >
+                    <RefreshCw className="mr-2 size-4" />
+                    Coba Lagi
+                  </Button>
+                }
+              />
+
+              <TooltipContent>
+                <p>Coba ambil nomor antrean kembali</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </Card>
@@ -967,14 +1091,24 @@ function DepartmentError({
         {message}
       </p>
 
-      <Button
-        size="lg"
-        onClick={onRetry}
-        className="mt-6 rounded-xl"
-      >
-        <RefreshCw className="mr-2 size-4" />
-        Muat Ulang
-      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              size="lg"
+              onClick={onRetry}
+              className="mt-6 rounded-xl"
+            >
+              <RefreshCw className="mr-2 size-4" />
+              Muat Ulang
+            </Button>
+          }
+        />
+
+        <TooltipContent>
+          <p>Muat ulang data poliklinik</p>
+        </TooltipContent>
+      </Tooltip>
     </Card>
   )
 }
