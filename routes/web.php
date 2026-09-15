@@ -12,6 +12,8 @@ Route::inertia('/', 'welcome')->name('home');
 
 Route::get('/login', [LoginController::class, 'index'])->name('login');
 
+Route::inertia('/kiosk', 'kiosk/index')->name('kiosk');
+
 Route::middleware(['guest'])->prefix('admin')->name('admin.')->group(function () {
 
     Route::get('/', [AdminController::class, 'index'])->name('dashboard');
