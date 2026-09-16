@@ -1,12 +1,12 @@
 export type UserRole =
-    | "PATIENT"
-    | "ADMIN"
-    | "RECEPTIONIST"
-    | "NURSE"
-    | "DOCTOR"
-    | "PHARMACY"
-    | "LAB"
-    | "STAFF";
+    | "patient"
+    | "admin"
+    | "receptionist"
+    | "nurse"
+    | "doctor"
+    | "pharmacy"
+    | "lab"
+    | "staff";
 
 export type PatientProfile = {
     id: string;
