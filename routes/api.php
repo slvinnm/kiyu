@@ -1,18 +1,18 @@
 <?php
 
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\KioskController;
 use App\Http\Controllers\Api\OnlineController;
-use App\Http\Controllers\Api\PatientAuthController;
 use App\Http\Controllers\Api\PatientVisitController;
 use App\Http\Controllers\Api\PublicQueueDisplayController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\VisitPriorityController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
+
     Route::prefix('kiosk')->middleware('throttle:60,1')->group(function () {
         Route::get('/departments', [KioskController::class, 'departments']);
         Route::post('/queue-acquisitions', [KioskController::class, 'acquire']);
@@ -22,14 +22,15 @@ Route::prefix('v1')->group(function () {
         Route::get('/queues/{station}', [PublicQueueDisplayController::class, 'show']);
     });
 
-    Route::prefix('patient')->group(function () {
-        Route::post('/register', [PatientAuthController::class, 'register'])->middleware('throttle:10,1');
-        Route::post('/login', [PatientAuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::prefix('auth')->group(function () {
+        Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:10,1');
+        Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+        Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+        Route::get('/me', [AuthController::class, 'me'])->middleware('auth:sanctum');
     });
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('patient')->middleware('throttle:60,1')->group(function () {
-            Route::get('/me', [PatientAuthController::class, 'me']);
             Route::get('/visits', [PatientVisitController::class, 'index']);
             Route::get('/visits/{visit}', [PatientVisitController::class, 'show']);
             Route::get('/queue', [PatientVisitController::class, 'queue']);
@@ -43,10 +44,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('reception')->group(function () {
             Route::get('/patients', [ReceptionController::class, 'patients']);
             Route::post('/visits', [ReceptionController::class, 'store']);
-            Route::post(
-                '/queue-acquisitions/{queueAcquisition}/register',
-                [ReceptionController::class, 'registerQueueAcquisition']
-            );
+            Route::post('/queue-acquisitions/{queueAcquisition}/register', [ReceptionController::class, 'registerQueueAcquisition']);
         });
 
         Route::prefix('queue')->group(function () {
@@ -69,10 +67,6 @@ Route::prefix('v1')->group(function () {
         Route::prefix('referrals')->group(function () {
             Route::post('/visits/{visit}', [ReferralController::class, 'store']);
             Route::get('/{referral}', [ReferralController::class, 'show']);
-        });
-
-        Route::get('/user', function (Request $request) {
-            return $request->user();
         });
     });
 });

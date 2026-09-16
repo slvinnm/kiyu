@@ -4,7 +4,7 @@ namespace App\Http\Requests\Api;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class PatientLoginRequest extends FormRequest
+class AuthLoginRequest extends FormRequest
 {
     public function authorize(): bool
     {

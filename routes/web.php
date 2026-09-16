@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\AdminController;
-use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\QueueController;
 use App\Http\Controllers\ReferralController;
@@ -9,8 +8,7 @@ use App\Http\Controllers\VisitController;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'welcome')->name('home');
-
-Route::get('/login', [LoginController::class, 'index'])->name('login');
+Route::inertia('/login', 'auth/login')->name('login');
 
 Route::inertia('/kiosk', 'kiosk/index')->name('kiosk');
 

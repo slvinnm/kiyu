@@ -34,16 +34,6 @@ it('denies staff access to the patient online visit endpoint', function (): void
         ->assertForbidden();
 });
 
-it('denies staff access to the patient profile endpoint', function (): void {
-    $staff = User::factory()->create([
-        'role' => UserRole::DOCTOR,
-    ]);
-
-    $this->actingAs($staff, 'sanctum')
-        ->getJson('/api/v1/patient/me')
-        ->assertForbidden();
-});
-
 it('keeps queue ticket authorization scoped to operational staff and station', function (): void {
     $policy = new QueueTicketPolicy;
     $ticket = new QueueTicket(['station_id' => 10]);

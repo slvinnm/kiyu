@@ -9,15 +9,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
-class PatientAuthService
+class AuthService
 {
-    public function register(array $data): array
+    public function registerPatient(array $data): array
     {
         return DB::transaction(function () use ($data) {
             $user = User::create([
                 'name' => $data['name'],
                 'email' => $data['email'],
-                'password' => $data['password'],
+                'password' => Hash::make($data['password']),
                 'role' => UserRole::PATIENT,
             ]);
 
@@ -32,10 +32,11 @@ class PatientAuthService
                 'address' => $data['address'] ?? null,
             ]);
 
+            $user->setRelation('patient', $patient);
+
             return [
                 'user' => $user,
-                'patient' => $patient,
-                'token' => $user->createToken('patient-api')->plainTextToken,
+                'token' => $user->createToken('api')->plainTextToken,
             ];
         });
     }
@@ -44,7 +45,6 @@ class PatientAuthService
     {
         $user = User::query()
             ->where('email', $email)
-            ->where('role', UserRole::PATIENT->value)
             ->first();
 
         if (! $user || ! Hash::check($password, $user->password)) {
@@ -53,18 +53,11 @@ class PatientAuthService
             ]);
         }
 
-        $patient = $user->patient;
-
-        if (! $patient) {
-            throw ValidationException::withMessages([
-                'account' => 'This patient account is not linked to a patient profile.',
-            ]);
-        }
+        $user->load('patient');
 
         return [
             'user' => $user,
-            'patient' => $patient,
-            'token' => $user->createToken('patient-api')->plainTextToken,
+            'token' => $user->createToken('api')->plainTextToken,
         ];
     }
 }
