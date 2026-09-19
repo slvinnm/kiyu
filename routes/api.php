@@ -30,6 +30,7 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware('auth:sanctum')->group(function () {
+
         Route::prefix('patient')->middleware('throttle:60,1')->group(function () {
             Route::get('/visits', [PatientVisitController::class, 'index']);
             Route::get('/visits/{visit}', [PatientVisitController::class, 'show']);
@@ -67,6 +68,14 @@ Route::prefix('v1')->group(function () {
         Route::prefix('referrals')->group(function () {
             Route::post('/visits/{visit}', [ReferralController::class, 'store']);
             Route::get('/{referral}', [ReferralController::class, 'show']);
+        });
+
+        Route::post('/test-endpoint', function () {
+            return response()->json([
+                'success' => true,
+                'message' => 'received',
+                'data' => [],
+            ]);
         });
     });
 });
