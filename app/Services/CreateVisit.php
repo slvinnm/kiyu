@@ -80,7 +80,9 @@ class CreateVisit
     {
         return match ($channel) {
             IntakeChannel::ONLINE => VisitStatus::AWAITING_CHECKIN->value,
-            IntakeChannel::KIOSK, IntakeChannel::WALK_IN => VisitStatus::WAITING->value,
+            IntakeChannel::KIOSK,
+            IntakeChannel::WALK_IN,
+            IntakeChannel::MANUAL => VisitStatus::WAITING->value,
         };
     }
 
