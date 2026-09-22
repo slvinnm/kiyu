@@ -6,6 +6,7 @@ use App\Enums\IntakeChannel;
 use App\Enums\Priority;
 use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueStatus;
+use App\Enums\StationType;
 use App\Enums\VisitStatus;
 use App\Enums\VisitWorkflowStatus;
 use App\Enums\VisitWorkflowStepStatus;
@@ -17,18 +18,17 @@ use App\Models\User;
 use App\Models\Visit;
 use App\Models\VisitCounter;
 use App\Models\WorkflowVersion;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class QueueAcquisitionService
 {
-    public function __construct(private WorkflowEngine $workflowEngine) {}
+    public function __construct(
+        private WorkflowEngine $workflowEngine,
+        private CreateVisit $createVisit,
+    ) {}
 
-    /**
-     * Acquire a queue number at a kiosk before the patient's identity is
-     * registered. The resulting visit is intentionally patient-less until
-     * reception completes registration.
-     */
     public function acquire(string $departmentCode, ?string $idempotencyKey = null): QueueAcquisition
     {
         return DB::transaction(function () use ($departmentCode, $idempotencyKey) {
@@ -45,65 +45,20 @@ class QueueAcquisitionService
                         ]);
                     }
 
-                    return $existing->load(['department', 'visit.queueTickets']);
+                    return $existing->load([
+                        'department',
+                        'visit.patient',
+                        'visit.queueTickets.station',
+                    ]);
                 }
             }
 
-            $department = Department::query()
-                ->where('code', $departmentCode)
-                ->where('is_active', true)
-                ->firstOrFail();
-
-            $workflows = $department->workflows()
-                ->where('is_active', true)
-                ->orderBy('id')
-                ->get();
-
-            if ($workflows->count() !== 1) {
-                throw new \LogicException(
-                    "Department {$department->code} must have exactly one active workflow."
-                );
-            }
-
-            $workflow = $workflows->first();
-
-            $workflowVersions = WorkflowVersion::query()
-                ->where('workflow_id', $workflow->id)
-                ->where('is_active', true)
-                ->orderByDesc('version_number')
-                ->get();
-
-            if ($workflowVersions->count() !== 1) {
-                throw new \LogicException(
-                    "Workflow {$workflow->id} must have exactly one active version."
-                );
-            }
-
-            $workflowVersion = $workflowVersions->first();
-
-            $firstStep = $workflowVersion->steps()
-                ->orderBy('sequence')
-                ->first();
+            $department = $this->resolveDepartment($departmentCode);
+            $workflowVersion = $this->resolveWorkflowVersion($department);
+            $firstStep = $workflowVersion->steps()->orderBy('sequence')->first();
 
             if (! $firstStep) {
                 throw new \LogicException("Workflow version {$workflowVersion->id} has no steps");
-            }
-
-            if ($idempotencyKey) {
-                $existing = QueueAcquisition::query()
-                    ->where('idempotency_key', $idempotencyKey)
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($existing) {
-                    if ($existing->department_id !== $department->id) {
-                        throw ValidationException::withMessages([
-                            'idempotency_key' => 'The idempotency key has already been used for another department.',
-                        ]);
-                    }
-
-                    return $existing->load(['department', 'visit.queueTickets']);
-                }
             }
 
             $visit = Visit::create([
@@ -133,16 +88,77 @@ class QueueAcquisitionService
                 'idempotency_key' => $idempotencyKey,
                 'status' => QueueAcquisitionStatus::ACQUIRED->value,
                 'acquired_at' => now(),
-            ])->load(['department', 'visit.queueTickets']);
+            ])->load([
+                'department',
+                'visit.patient',
+                'visit.queueTickets.station',
+            ]);
         });
     }
 
-    /**
-     * Attach the real patient identity when reception completes kiosk
-     * registration. Queue acquisition remains the intake record; it does not
-     * become a second Visit or a second queue ticket.
-     */
-    public function registerPatient(
+    public function createForVisit(Visit $visit, IntakeChannel $channel): QueueAcquisition
+    {
+        if ($visit->intake_channel !== $channel) {
+            throw new \LogicException(
+                "Queue acquisition channel {$channel->value} does not match visit channel {$visit->intake_channel->value}."
+            );
+        }
+
+        $existing = QueueAcquisition::query()
+            ->where('visit_id', $visit->id)
+            ->first();
+
+        if ($existing) {
+            return $existing->load([
+                'department',
+                'visit.patient',
+                'visit.queueTickets.station',
+            ]);
+        }
+
+        return QueueAcquisition::create([
+            'department_id' => $visit->department_id,
+            'visit_id' => $visit->id,
+            'channel' => $channel->value,
+            'status' => QueueAcquisitionStatus::ACQUIRED->value,
+            'acquired_at' => now(),
+        ])->load([
+            'department',
+            'visit.patient',
+            'visit.queueTickets.station',
+        ]);
+    }
+
+    public function createReception(
+        array $data,
+        User $createdBy,
+        IntakeChannel $channel = IntakeChannel::MANUAL,
+    ): QueueAcquisition {
+        return DB::transaction(function () use ($data, $createdBy, $channel) {
+            $patient = isset($data['patient_id'])
+                ? Patient::query()->findOrFail($data['patient_id'])
+                : Patient::create(Arr::only($data, [
+                    'name',
+                    'email',
+                    'national_id',
+                    'date_of_birth',
+                    'gender',
+                    'phone',
+                    'address',
+                ]));
+
+            $visit = $this->createVisit->handle(
+                patientId: $patient->id,
+                departmentCode: $data['department_code'],
+                intakeChannel: $channel,
+                registeredByUserId: $createdBy->id,
+            );
+
+            return $this->createForVisit($visit, $channel);
+        });
+    }
+
+    public function attachPatient(
         QueueAcquisition $acquisition,
         Patient $patient,
         User $registeredBy,
@@ -170,25 +186,96 @@ class QueueAcquisitionService
                 ]);
             }
 
-            if ($visit->intake_channel !== IntakeChannel::KIOSK) {
-                throw ValidationException::withMessages([
-                    'acquisition' => 'Only kiosk visits can be registered through a queue acquisition.',
+            if ($visit->patient_id === null) {
+                $visit->update([
+                    'patient_id' => $patient->id,
                 ]);
             }
 
-            $visit->update([
-                'patient_id' => $patient->id,
-                'registered_by' => $registeredBy->id,
-            ]);
+            if ($visit->registered_by === null) {
+                $visit->update([
+                    'registered_by' => $registeredBy->id,
+                ]);
+            }
 
-            $lockedAcquisition->update([
-                'status' => QueueAcquisitionStatus::REGISTERED->value,
-                'registered_by' => $registeredBy->id,
-                'registered_at' => now(),
+            return $lockedAcquisition->fresh([
+                'department',
+                'visit.patient',
+                'visit.queueTickets.station',
             ]);
-
-            return $lockedAcquisition->fresh(['department', 'visit.patient', 'visit.queueTickets']);
         });
+    }
+
+    public function validateRegistrationCompletion(QueueTicket $ticket): void
+    {
+        $ticket->loadMissing(['station', 'visit']);
+
+        if ($ticket->station?->type !== StationType::REGISTRATION) {
+            return;
+        }
+
+        $acquisition = QueueAcquisition::query()
+            ->where('visit_id', $ticket->visit_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $acquisition || $acquisition->status !== QueueAcquisitionStatus::ACQUIRED) {
+            return;
+        }
+
+        if ($ticket->visit?->patient_id === null) {
+            throw ValidationException::withMessages([
+                'patient' => 'A patient must be registered before the registration queue can be completed.',
+            ]);
+        }
+    }
+
+    public function markRegisteredAfterCompletion(
+        QueueTicket $ticket,
+        ?int $registeredByUserId = null,
+    ): void {
+        $ticket->loadMissing(['station']);
+
+        if ($ticket->station?->type !== StationType::REGISTRATION) {
+            return;
+        }
+
+        $acquisition = QueueAcquisition::query()
+            ->where('visit_id', $ticket->visit_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $acquisition || $acquisition->status !== QueueAcquisitionStatus::ACQUIRED) {
+            return;
+        }
+
+        $acquisition->update([
+            'status' => QueueAcquisitionStatus::REGISTERED->value,
+            'registered_by' => $registeredByUserId ?? $acquisition->registered_by,
+            'registered_at' => now(),
+        ]);
+    }
+
+    public function cancelIfRegistrationTicket(QueueTicket $ticket): void
+    {
+        $ticket->loadMissing(['station']);
+
+        if ($ticket->station?->type !== StationType::REGISTRATION) {
+            return;
+        }
+
+        $acquisition = QueueAcquisition::query()
+            ->where('visit_id', $ticket->visit_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $acquisition || $acquisition->status !== QueueAcquisitionStatus::ACQUIRED) {
+            return;
+        }
+
+        $acquisition->update([
+            'status' => QueueAcquisitionStatus::CANCELLED->value,
+        ]);
     }
 
     public function cancel(QueueAcquisition $acquisition): QueueAcquisition
@@ -216,11 +303,12 @@ class QueueAcquisitionService
 
             if ($hasProgressedTicket) {
                 throw ValidationException::withMessages([
-                    'acquisition' => 'A queue that has already progressed cannot be cancelled through kiosk acquisition.',
+                    'acquisition' => 'A queue that has already progressed cannot be cancelled through acquisition.',
                 ]);
             }
 
             $stateMachine = new QueueStateMachine;
+
             $activeTickets = QueueTicket::query()
                 ->where('visit_id', $visit->id)
                 ->whereIn('status', [
@@ -263,8 +351,51 @@ class QueueAcquisitionService
                 'status' => QueueAcquisitionStatus::CANCELLED->value,
             ]);
 
-            return $lockedAcquisition->fresh(['department', 'visit.visitWorkflow', 'visit.queueTickets']);
+            return $lockedAcquisition->fresh([
+                'department',
+                'visit.patient',
+                'visit.visitWorkflow',
+                'visit.queueTickets.station',
+            ]);
         });
+    }
+
+    private function resolveDepartment(string $departmentCode): Department
+    {
+        return Department::query()
+            ->where('code', $departmentCode)
+            ->where('is_active', true)
+            ->firstOrFail();
+    }
+
+    private function resolveWorkflowVersion(Department $department): WorkflowVersion
+    {
+        $workflows = $department->workflows()
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get();
+
+        if ($workflows->count() !== 1) {
+            throw new \LogicException(
+                "Department {$department->code} must have exactly one active workflow."
+            );
+        }
+
+        $workflow = $workflows->first();
+
+        $workflowVersions = WorkflowVersion::query()
+            ->where('workflow_id', $workflow->id)
+            ->where('is_active', true)
+            ->orderByDesc('version_number')
+            ->get();
+
+        if ($workflowVersions->count() !== 1) {
+            throw new \LogicException(
+                "Workflow {$workflow->id} must have exactly one active version."
+            );
+        }
+
+        return $workflowVersions->first();
     }
 
     private function generateVisitNumber(): string
