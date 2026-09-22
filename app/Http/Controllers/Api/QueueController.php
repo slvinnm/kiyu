@@ -58,7 +58,8 @@ class QueueController extends Controller
                 : 'No queue ticket is available.',
             'data' => $ticket ? new QueueTicketResource($ticket->load([
                 'station',
-                'visit',
+                'visit.patient',
+                'visit.queueAcquisition',
                 'visitWorkflowStep.workflowStep',
             ])) : null,
         ]);
@@ -102,7 +103,8 @@ class QueueController extends Controller
             'data' => [
                 'ticket' => new QueueTicketResource($result['ticket']->load([
                     'station',
-                    'visit',
+                    'visit.patient',
+                    'visit.queueAcquisition',
                     'visitWorkflowStep.workflowStep',
                 ])),
                 'next_step' => $result['next_step']
