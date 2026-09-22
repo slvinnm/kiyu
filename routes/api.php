@@ -44,9 +44,12 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::prefix('reception')->group(function () {
+            Route::get('/departments', [ReceptionController::class, 'departments']);
             Route::get('/patients', [ReceptionController::class, 'patients']);
             Route::post('/visits', [ReceptionController::class, 'store']);
             Route::get('/queue-acquisitions', [QueueAcquisitionController::class, 'index']);
+            Route::post('/queue-acquisitions', [QueueAcquisitionController::class, 'store']);
+            Route::post('/queue-acquisitions/call-next', [QueueAcquisitionController::class, 'callNext']);
             Route::post('/queue-acquisitions/{queueAcquisition}/register', [ReceptionController::class, 'registerQueueAcquisition']);
         });
 
