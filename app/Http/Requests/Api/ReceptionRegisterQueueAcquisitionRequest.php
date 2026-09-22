@@ -21,8 +21,7 @@ class ReceptionRegisterQueueAcquisitionRequest extends FormRequest
             return true;
         }
 
-        return $user->role === UserRole::RECEPTIONIST
-            && $user->department_id === $acquisition->department_id;
+        return $user->role === UserRole::RECEPTIONIST;
     }
 
     public function rules(): array

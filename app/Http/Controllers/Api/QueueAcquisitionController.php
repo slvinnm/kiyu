@@ -34,12 +34,6 @@ class QueueAcquisitionController extends Controller
             ->where('status', QueueAcquisitionStatus::ACQUIRED)
             ->orderBy('acquired_at');
 
-        if ($user->role === UserRole::RECEPTIONIST) {
-            abort_unless($user->department_id !== null, 403);
-
-            $query->where('department_id', $user->department_id);
-        }
-
         if ($search !== '') {
             $query->where(function ($query) use ($search): void {
                 $query
