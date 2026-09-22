@@ -3,6 +3,7 @@
 use App\Enums\StationType;
 use App\Enums\UserRole;
 use App\Models\Patient;
+use App\Models\QueueAcquisition;
 use App\Models\User;
 use Tests\Support\ApiScenario;
 
@@ -19,7 +20,8 @@ it('registers a kiosk acquisition for a patient at reception', function (): void
     $acquisitionResponse = $this->postJson('/api/v1/kiosk/queue-acquisitions', [
         'department_code' => 'RECEPTION-QUEUE',
     ])->assertCreated();
-    $acquisition = $acquisitionResponse->json('data.id');
+    $acquisitionId = $acquisitionResponse->json('data.id');
+    $acquisition = QueueAcquisition::findOrFail($acquisitionId);
     $visitId = $acquisitionResponse->json('data.visit.id');
 
     $this->actingAs($receptionist, 'sanctum')
