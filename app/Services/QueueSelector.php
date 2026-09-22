@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueStatus;
 use App\Enums\VisitStatus;
 use App\Models\QueueTicket;
@@ -25,6 +26,24 @@ class QueueSelector
             ->first();
 
         return $ticket;
+    }
+
+    public function callNextForReception(Station $station): ?QueueTicket
+    {
+        return QueueTicket::query()
+            ->where('station_id', $station->id)
+            ->where('status', QueueStatus::CREATED->value)
+            ->whereHas('visit', function ($query): void {
+                $query
+                    ->where('status', VisitStatus::WAITING->value)
+                    ->whereHas('queueAcquisition', function ($query): void {
+                        $query->where('status', QueueAcquisitionStatus::ACQUIRED->value);
+                    });
+            })
+            ->orderByDesc('priority')
+            ->orderBy('internal_sequence')
+            ->lockForUpdate()
+            ->first();
     }
 
     public function selectForStation(Station $station, ?int $limit = 20): Collection
