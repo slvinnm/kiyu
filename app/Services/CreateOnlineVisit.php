@@ -11,7 +11,10 @@ use Illuminate\Validation\ValidationException;
 
 class CreateOnlineVisit
 {
-    public function __construct(private CreateVisit $createVisit) {}
+    public function __construct(
+        private CreateVisit $createVisit,
+        private QueueAcquisitionService $queueAcquisitionService,
+    ) {}
 
     public function handle(Patient $patient, string $departmentCode): Visit
     {
@@ -38,12 +41,19 @@ class CreateOnlineVisit
                 ]);
             }
 
-            return $this->createVisit->handle(
+            $visit = $this->createVisit->handle(
                 patientId: $patient->id,
                 departmentCode: $departmentCode,
                 intakeChannel: IntakeChannel::ONLINE,
                 onlineActiveKey: $patient->id . '-' . $departmentCode,
             );
+
+            $this->queueAcquisitionService->createForVisit(
+                visit: $visit,
+                channel: IntakeChannel::ONLINE,
+            );
+
+            return $visit;
         });
     }
 }
