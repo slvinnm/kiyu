@@ -2,12 +2,15 @@
 
 namespace App\Services;
 
+use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueEventType;
 use App\Enums\QueueStatus;
+use App\Enums\StationType;
 use App\Enums\VisitStatus;
 use App\Enums\VisitWorkflowStatus;
 use App\Enums\VisitWorkflowStepStatus;
 use App\Models\AuditLog;
+use App\Models\QueueAcquisition;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +22,7 @@ class QueueService
         protected QueueStateMachine $stateMachine,
         protected QueueSelector $selector,
         protected WorkflowEngine $workflowEngine,
+        protected QueueAcquisitionService $queueAcquisitionService,
     ) {}
 
     public function callNext(int $stationId, ?int $calledByUserId = null): ?QueueTicket
@@ -53,6 +57,57 @@ class QueueService
             $this->stateMachine->apply($ticket, QueueStatus::CALLED, $calledByUserId);
 
             return $ticket->fresh();
+        });
+    }
+
+    public function callNextForReception(int $departmentId, ?int $calledByUserId = null): ?QueueTicket
+    {
+        return DB::transaction(function () use ($departmentId, $calledByUserId) {
+            $stations = Station::query()
+                ->where('department_id', $departmentId)
+                ->where('type', StationType::REGISTRATION->value)
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            if ($stations->count() !== 1) {
+                throw ValidationException::withMessages([
+                    'department' => 'The department must have exactly one active registration station for reception queue processing.',
+                ]);
+            }
+
+            $station = $stations->first();
+
+            $hasActiveTicket = QueueTicket::query()
+                ->where('station_id', $station->id)
+                ->whereIn('status', [
+                    QueueStatus::CALLED->value,
+                    QueueStatus::IN_PROGRESS->value,
+                    QueueStatus::ON_HOLD->value,
+                ])
+                ->exists();
+
+            if ($hasActiveTicket) {
+                throw ValidationException::withMessages([
+                    'station' => 'The registration station already has an active queue ticket.',
+                ]);
+            }
+
+            $ticket = $this->selector->callNextForReception($station);
+
+            if (! $ticket) {
+                return null;
+            }
+
+            $this->stateMachine->apply($ticket, QueueStatus::CALLED, $calledByUserId);
+
+            return $ticket->fresh([
+                'station',
+                'visit.patient',
+                'visit.queueAcquisition',
+                'visitWorkflowStep.workflowStep',
+            ]);
         });
     }
 
@@ -110,6 +165,8 @@ class QueueService
                 ]);
             }
 
+            $this->queueAcquisitionService->validateRegistrationCompletion($ticket);
+
             $this->stateMachine->apply(
                 $ticket,
                 QueueStatus::COMPLETED,
@@ -119,6 +176,11 @@ class QueueService
             $result = $this->workflowEngine->completeCurrentStep(
                 $ticket,
                 $completionContext,
+            );
+
+            $this->queueAcquisitionService->markRegisteredAfterCompletion(
+                ticket: $ticket,
+                registeredByUserId: $completedByUserId,
             );
 
             return [
@@ -312,6 +374,8 @@ class QueueService
             'status' => VisitStatus::CANCELLED->value,
             'online_active_key' => null,
         ]);
+
+        $this->queueAcquisitionService->cancelIfRegistrationTicket($ticket);
     }
 
     public function transferTicket(int $ticketId, int $targetStationId, ?int $transferredByUserId = null): array
