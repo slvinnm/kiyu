@@ -1,6 +1,6 @@
 <?php
 
-namespace DatabaseFactories;
+namespace Database\Factories;
 
 use App\Models\QueueAcquisition;
 use App\Models\Visit;
