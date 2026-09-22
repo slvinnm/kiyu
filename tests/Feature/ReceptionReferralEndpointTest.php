@@ -3,6 +3,7 @@
 use App\Enums\StationType;
 use App\Enums\UserRole;
 use App\Models\Patient;
+use App\Models\QueueAcquisition;
 use App\Models\User;
 use Tests\Support\ApiScenario;
 
@@ -19,7 +20,8 @@ it('registers a kiosk acquisition for a patient at reception', function (): void
     $acquisitionResponse = $this->postJson('/api/v1/kiosk/queue-acquisitions', [
         'department_code' => 'RECEPTION-QUEUE',
     ])->assertCreated();
-    $acquisition = $acquisitionResponse->json('data.id');
+    $acquisitionId = $acquisitionResponse->json('data.id');
+    $acquisition = QueueAcquisition::findOrFail($acquisitionId);
     $visitId = $acquisitionResponse->json('data.visit.id');
 
     $this->actingAs($receptionist, 'sanctum')
@@ -27,7 +29,11 @@ it('registers a kiosk acquisition for a patient at reception', function (): void
             'patient_id' => $patient->id,
         ])
         ->assertOk()
-        ->assertJsonPath('data.visit.id', $visitId);
+        ->assertJsonPath('data.visit.id', $visitId)
+        ->assertJsonPath('data.status', 'ACQUIRED');
+
+    expect($acquisition->fresh()->visit->patient_id)->toBe($patient->id);
+    expect($acquisition->fresh()->visit->queueTickets()->sole()->status->value)->toBe('CREATED');
 });
 
 it('creates a direct walk-in visit for an existing patient', function (): void {
@@ -48,6 +54,7 @@ it('creates a direct walk-in visit for an existing patient', function (): void {
         ->assertJsonPath('data.queue_tickets.0.status', 'CREATED');
 
     expect($patient->fresh()->visits()->count())->toBe(1);
+    expect($patient->fresh()->visits()->first()->queueAcquisition()->exists())->toBeTrue();
 });
 
 it('creates a patient and walk-in visit when reception receives new patient data', function (): void {
@@ -68,7 +75,7 @@ it('creates a patient and walk-in visit when reception receives new patient data
     expect(Patient::query()->where('name', 'New Walk-in Patient')->exists())->toBeTrue();
 });
 
-it('rejects reception registration from another department', function (): void {
+it('allows reception registration from another department', function (): void {
     $department = ApiScenario::department('RECEPTION-SOURCE');
     $station = ApiScenario::station($department, 'RECEPTION-SOURCE-REG');
     ApiScenario::workflow($department, [$station]);
@@ -85,7 +92,7 @@ it('rejects reception registration from another department', function (): void {
     $this->actingAs($receptionist, 'sanctum')
         ->postJson('/api/v1/reception/queue-acquisitions/' . $acquisition . '/register', [
             'patient_id' => $patient->id,
-        ])->assertForbidden();
+        ])->assertOk();
 });
 
 it('creates and retrieves a referral for an authorized clinical user', function (): void {

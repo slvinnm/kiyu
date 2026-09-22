@@ -17,10 +17,10 @@ class QueueAcquisitionFactory extends Factory
             'visit_id' => Visit::factory(),
             'channel' => 'KIOSK',
             'idempotency_key' => null,
-            'status' => 'PENDING',
+            'status' => 'ACQUIRED',
             'registered_by' => null,
-            'acquired_at' => null,
-            'registered_at' => now(),
+            'acquired_at' => now(),
+            'registered_at' => null,
         ];
     }
 }

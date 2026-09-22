@@ -17,6 +17,11 @@ it('creates an online visit and prevents duplicate active visits', function (): 
         ->assertCreated()
         ->assertJsonPath('data.intake_channel', IntakeChannel::ONLINE->value);
 
+    $visit = $account['patient']->visits()->latest('id')->first();
+
+    expect($visit->queueAcquisition()->exists())->toBeTrue()
+        ->and($visit->queueAcquisition->channel)->toBe(IntakeChannel::ONLINE);
+
     $this->postJson('/api/v1/online/visits', ['department_code' => 'ONLINE-VISIT'])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['department_code']);
