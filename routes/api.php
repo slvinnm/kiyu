@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\KioskController;
 use App\Http\Controllers\Api\OnlineController;
 use App\Http\Controllers\Api\PatientVisitController;
 use App\Http\Controllers\Api\PublicQueueDisplayController;
+use App\Http\Controllers\Api\QueueAcquisitionController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
@@ -45,6 +46,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('reception')->group(function () {
             Route::get('/patients', [ReceptionController::class, 'patients']);
             Route::post('/visits', [ReceptionController::class, 'store']);
+            Route::get('/queue-acquisitions', [QueueAcquisitionController::class, 'index']);
             Route::post('/queue-acquisitions/{queueAcquisition}/register', [ReceptionController::class, 'registerQueueAcquisition']);
         });
 
