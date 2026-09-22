@@ -25,6 +25,12 @@ class QueueTicketResource extends JsonResource
                 'id' => $this->visit?->id,
                 'visit_number' => $this->visit?->visit_number,
                 'status' => $this->visit?->status?->value,
+                'patient' => $this->visit?->patient ? [
+                    'id' => $this->visit->patient->id,
+                    'name' => $this->visit->patient->name,
+                    'medical_record_number' => $this->visit->patient->medical_record_number,
+                ] : null,
+                'intake_channel' => $this->visit?->intake_channel?->value,
             ],
             'workflow_step' => [
                 'id' => $this->visitWorkflowStep?->workflowStep?->id,
