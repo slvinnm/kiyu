@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\IntakeChannel;
+use App\Enums\StationType;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\ReceptionRegisterQueueAcquisitionRequest;
@@ -9,35 +11,60 @@ use App\Http\Requests\Api\ReceptionVisitRequest;
 use App\Http\Resources\PatientResource;
 use App\Http\Resources\QueueAcquisitionResource;
 use App\Http\Resources\VisitResource;
+use App\Models\Department;
 use App\Models\Patient;
 use App\Models\QueueAcquisition;
 use App\Services\QueueAcquisitionService;
-use App\Services\RegisterReceptionVisit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ReceptionController extends Controller
 {
-    public function __construct(
-        private QueueAcquisitionService $queueAcquisitionService,
-        private RegisterReceptionVisit $registerReceptionVisit,
-    ) {}
+    public function __construct(private QueueAcquisitionService $queueAcquisitionService) {}
+
+    public function departments(): JsonResponse
+    {
+        abort_unless(
+            in_array(request()->user()->role, [UserRole::ADMIN, UserRole::RECEPTIONIST], true),
+            403
+        );
+
+        $departments = Department::query()
+            ->where('is_active', true)
+            ->whereHas('workflows', fn ($query) => $query->where('is_active', true))
+            ->whereHas('stations', function ($query): void {
+                $query
+                    ->where('type', StationType::REGISTRATION->value)
+                    ->where('is_active', true);
+            })
+            ->orderBy('name')
+            ->get(['id', 'code', 'name']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Reception departments retrieved successfully.',
+            'data' => $departments,
+        ]);
+    }
 
     public function store(ReceptionVisitRequest $request): JsonResponse
     {
-        $visit = $this->registerReceptionVisit->handle(
+        $acquisition = $this->queueAcquisitionService->createReception(
             data: $request->validated(),
-            registeredBy: $request->user(),
+            createdBy: $request->user(),
+            channel: IntakeChannel::WALK_IN,
         );
+
+        $visit = $acquisition->visit->load([
+            'department',
+            'queueTickets.station',
+            'queueTickets.visitWorkflowStep.workflowStep',
+        ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Walk-in visit registered successfully.',
-            'data' => new VisitResource($visit->load([
-                'department',
-                'queueTickets.station',
-                'queueTickets.visitWorkflowStep.workflowStep',
-            ])),
+            'data' => new VisitResource($visit),
         ], 201);
     }
 
@@ -74,7 +101,7 @@ class ReceptionController extends Controller
     ): JsonResponse {
         $patient = Patient::query()->findOrFail($request->integer('patient_id'));
 
-        $acquisition = $this->queueAcquisitionService->registerPatient(
+        $acquisition = $this->queueAcquisitionService->attachPatient(
             acquisition: $queueAcquisition,
             patient: $patient,
             registeredBy: $request->user(),
@@ -82,7 +109,7 @@ class ReceptionController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Queue acquisition registered successfully.',
+            'message' => 'Patient linked to queue acquisition successfully.',
             'data' => new QueueAcquisitionResource($acquisition),
         ]);
     }
