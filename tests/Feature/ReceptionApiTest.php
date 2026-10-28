@@ -151,3 +151,38 @@ test('reception double-completion is prevented and returns conflict 409', functi
     $secondRes->assertStatus(409)
         ->assertJsonPath('error_type', 'BUSINESS_CONFLICT');
 });
+
+test('reception queue view displays current calling and waiting tickets for the department', function () {
+    // 1. Create walk-in 1
+    $res1 = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+        'priority' => Priority::Normal->value,
+    ])->json('data');
+
+    // 2. Create walk-in 2
+    $res2 = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+        'priority' => Priority::Priority->value,
+    ])->json('data');
+
+    // View queue before call
+    $viewRes = $this->getJson("/api/reception/queue?department_id={$this->generalDepartment->id}");
+    $viewRes->assertStatus(200)
+        ->assertJsonPath('message', 'Reception queue retrieved.')
+        ->assertJsonPath('data.waiting_count', 2)
+        ->assertJsonPath('data.current_calling', null)
+        // High priority should be first in waiting list
+        ->assertJsonPath('data.waiting.0.priority', Priority::Priority->value);
+
+    // Call first
+    $this->postJson('/api/reception/call-next', [
+        'department_id' => $this->generalDepartment->id,
+    ])->assertStatus(200);
+
+    // View queue again
+    $viewAfterCall = $this->getJson("/api/reception/queue?department_id={$this->generalDepartment->id}");
+    $viewAfterCall->assertStatus(200)
+        ->assertJsonPath('data.waiting_count', 1)
+        ->assertJsonPath('data.current_calling.queue_number', $res2['ticket']['queue_number']);
+});
+

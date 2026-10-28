@@ -26,6 +26,65 @@ class ReceptionService
     ) {}
 
     /**
+     * Get the current reception queue state for a department.
+     *
+     * @return array{station: \App\Models\Station, current_calling: ?QueueTicket, waiting: \Illuminate\Database\Eloquent\Collection, waiting_count: int, called_count_today: int, on_hold: \Illuminate\Database\Eloquent\Collection}
+     */
+    public function getReceptionQueue(int $departmentId, ?int $stationId = null): array
+    {
+        $workflow = $this->workflowService->resolvePrimaryWorkflow($departmentId);
+        $registrationStep = $this->workflowService->resolveRegistrationStep($workflow);
+        $registrationStation = $registrationStep->station;
+
+        if ($stationId && $stationId !== $registrationStation->id) {
+            throw new InvalidStateException("Provided station #{$stationId} does not match active registration station #{$registrationStation->id}.");
+        }
+
+        $today = now()->format('Y-m-d');
+
+        // Current calling ticket at this registration station
+        $currentCalling = QueueTicket::query()
+            ->with(['visit.patient', 'station', 'workflowStep'])
+            ->where('station_id', $registrationStation->id)
+            ->where('status', QueueTicketStatus::Called)
+            ->latest('called_at')
+            ->first();
+
+        // Waiting tickets (ordered by priority desc, internal_sequence asc)
+        $waitingTickets = QueueTicket::query()
+            ->with(['visit.patient', 'station', 'workflowStep'])
+            ->where('station_id', $registrationStation->id)
+            ->where('status', QueueTicketStatus::Created)
+            ->whereDate('created_at', $today)
+            ->orderBy('priority', 'desc')
+            ->orderBy('internal_sequence', 'asc')
+            ->get();
+
+        // On hold tickets (if any)
+        $onHoldTickets = QueueTicket::query()
+            ->with(['visit.patient', 'station', 'workflowStep'])
+            ->where('station_id', $registrationStation->id)
+            ->where('status', QueueTicketStatus::OnHold)
+            ->whereDate('created_at', $today)
+            ->get();
+
+        $calledCountToday = QueueTicket::query()
+            ->where('station_id', $registrationStation->id)
+            ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::Completed, QueueTicketStatus::Skipped, QueueTicketStatus::NoShow])
+            ->whereDate('created_at', $today)
+            ->count();
+
+        return [
+            'station' => $registrationStation,
+            'current_calling' => $currentCalling,
+            'waiting' => $waitingTickets,
+            'waiting_count' => $waitingTickets->count(),
+            'called_count_today' => $calledCountToday,
+            'on_hold' => $onHoldTickets,
+        ];
+    }
+
+    /**
      * Call next queue ticket for reception at the resolved registration station.
      */
     public function callNext(int $departmentId, ?string $assignedTo = null, ?int $stationId = null): ?QueueTicket

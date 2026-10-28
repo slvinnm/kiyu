@@ -40,9 +40,11 @@ class PublicQueueController extends Controller
                 ->where('status', QueueTicketStatus::Created)
                 ->count();
 
-            // Next 5 upcoming tickets
+            // Next 5 upcoming tickets (scope to station and today for clean numbering)
+            $today = now()->format('Y-m-d');
             $upcomingTickets = $station->queueTickets()
                 ->where('status', QueueTicketStatus::Created)
+                ->whereDate('created_at', $today)
                 ->orderBy('priority', 'desc')
                 ->orderBy('internal_sequence', 'asc')
                 ->limit(5)

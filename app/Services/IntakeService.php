@@ -206,6 +206,16 @@ class IntakeService
                 throw new InvalidStateException("Visit #{$visit->visit_number} is in status '{$visit->status->value}', cannot check in.");
             }
 
+            // Idempotency: prevent double check-in for the same visit
+            $existingTicket = QueueTicket::query()
+                ->where('visit_id', $visit->id)
+                ->whereIn('status', [QueueTicketStatus::Created, QueueTicketStatus::Called, QueueTicketStatus::InProgress, QueueTicketStatus::OnHold])
+                ->first();
+
+            if ($existingTicket) {
+                throw new InvalidStateException("Visit #{$visit->visit_number} has already checked in and holds an active queue ticket (#{$existingTicket->queue_number}).");
+            }
+
             $workflow = $visit->workflow;
             $registrationStep = $this->workflowService->resolveRegistrationStep($workflow);
             $registrationStation = $registrationStep->station;
@@ -360,6 +370,120 @@ class IntakeService
                 'acquisition' => $acquisition,
                 'ticket' => $ticket->load(['station', 'workflowStep']),
             ];
+        });
+    }
+
+    /**
+     * Get paginated queue acquisitions with filters.
+     *
+     * @param  array{channel?: string, status?: string, department_id?: int, date?: string}  $filters
+     */
+    public function getAcquisitions(array $filters = [], int $perPage = 20)
+    {
+        $query = QueueAcquisition::query()->with(['visit.patient', 'department', 'visit.workflow']);
+
+        if (! empty($filters['channel'])) {
+            $query->where('channel', $filters['channel']);
+        }
+
+        if (! empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+
+        if (! empty($filters['department_id'])) {
+            $query->where('department_id', $filters['department_id']);
+        }
+
+        if (! empty($filters['date'])) {
+            $query->whereDate('created_at', $filters['date']);
+        }
+
+        return $query->latest('id')->paginate($perPage);
+    }
+
+    /**
+     * Get a specific queue acquisition with full relations.
+     */
+    public function getAcquisition(int $id): QueueAcquisition
+    {
+        return QueueAcquisition::query()
+            ->with([
+                'visit.patient',
+                'department',
+                'visit.workflow',
+                'visit.queueTickets.station',
+                'visit.queueTickets.workflowStep',
+            ])
+            ->findOrFail($id);
+    }
+
+    /**
+     * Cancel a queue acquisition and its associated pending visit/tickets.
+     */
+    public function cancelAcquisition(int $id, ?string $reason = null, ?string $userId = null): QueueAcquisition
+    {
+        return DB::transaction(function () use ($id, $reason, $userId): QueueAcquisition {
+            /** @var QueueAcquisition $acquisition */
+            $acquisition = QueueAcquisition::query()
+                ->with('visit')
+                ->lockForUpdate()
+                ->findOrFail($id);
+
+            if ($acquisition->status === QueueAcquisitionStatus::Cancelled) {
+                throw new InvalidStateException("Acquisition #{$id} is already cancelled.");
+            }
+
+            if ($acquisition->status === QueueAcquisitionStatus::Registered) {
+                throw new BusinessConflictException("Cannot cancel acquisition #{$id} because registration has already completed. Cancel the visit instead.");
+            }
+
+            $acquisition->update([
+                'status' => QueueAcquisitionStatus::Cancelled,
+            ]);
+
+            $visit = $acquisition->visit;
+            if ($visit && in_array($visit->status, [VisitStatus::AwaitingCheckin, VisitStatus::Waiting], true)) {
+                $visit->update([
+                    'status' => VisitStatus::Cancelled,
+                ]);
+
+                // Cancel any pending registration tickets
+                $activeTickets = QueueTicket::query()
+                    ->where('visit_id', $visit->id)
+                    ->whereIn('status', [QueueTicketStatus::Created, QueueTicketStatus::Called])
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($activeTickets as $ticket) {
+                    $prevStatus = $ticket->status;
+                    $ticket->update([
+                        'status' => QueueTicketStatus::Cancelled,
+                        'notes' => $reason ? "Acquisition cancelled: {$reason}" : 'Acquisition cancelled',
+                    ]);
+
+                    QueueEvent::query()->create([
+                        'queue_ticket_id' => $ticket->id,
+                        'event_type' => QueueEventType::Cancelled,
+                        'from_status' => $prevStatus->value,
+                        'to_status' => QueueTicketStatus::Cancelled->value,
+                        'user_id' => $userId,
+                        'payload' => ['reason' => $reason ?? 'Acquisition cancelled'],
+                    ]);
+                }
+            }
+
+            $this->auditService->log(
+                action: 'ACQUISITION_CANCELLED',
+                entityType: 'QueueAcquisition',
+                entityId: $acquisition->id,
+                metadata: [
+                    'reason' => $reason,
+                    'visit_id' => $visit?->id,
+                ],
+                userId: $userId
+            );
+
+            return $acquisition->fresh(['visit.patient', 'department']);
         });
     }
 }

@@ -32,6 +32,10 @@ class TicketController extends Controller
             $query->where('priority', $request->input('priority'));
         }
 
+        if ($request->has('date')) {
+            $query->whereDate('created_at', $request->input('date'));
+        }
+
         return response()->json([
             'data' => $query->latest('id')->paginate($request->input('per_page', 20)),
         ]);

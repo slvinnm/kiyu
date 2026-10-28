@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\PublicQueueController;
+use App\Http\Controllers\Api\QueueAcquisitionController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\StationController;
@@ -23,8 +24,17 @@ Route::prefix('intake')->group(function () {
     Route::post('/online-checkin', [IntakeController::class, 'onlineCheckin']);
 });
 
+// 1b. Queue Acquisition Management
+Route::prefix('queue-acquisitions')->group(function () {
+    Route::get('/', [QueueAcquisitionController::class, 'index']);
+    Route::get('/{id}', [QueueAcquisitionController::class, 'show']);
+    Route::post('/{id}/cancel', [QueueAcquisitionController::class, 'cancel']);
+});
+
 // 2. Reception Queue & Registration Endpoints
 Route::prefix('reception')->group(function () {
+    Route::get('/queue', [ReceptionController::class, 'queue']);
+
     Route::post('/call-next', [ReceptionController::class, 'callNext']);
     Route::post('/complete-registration', [ReceptionController::class, 'completeRegistration']);
     Route::post('/{ticketId}/recall', [ReceptionController::class, 'recall']);

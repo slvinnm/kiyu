@@ -14,6 +14,27 @@ class ReceptionController extends Controller
     ) {}
 
     /**
+     * Get the current reception queue state for a department/station.
+     */
+    public function queue(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+        ]);
+
+        $queue = $this->receptionService->getReceptionQueue(
+            departmentId: (int) $validated['department_id'],
+            stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null
+        );
+
+        return response()->json([
+            'message' => 'Reception queue retrieved.',
+            'data' => $queue,
+        ]);
+    }
+
+    /**
      * Call next queue ticket for reception at the resolved registration station.
      */
     public function callNext(Request $request): JsonResponse
