@@ -185,4 +185,3 @@ test('reception queue view displays current calling and waiting tickets for the 
         ->assertJsonPath('data.waiting_count', 1)
         ->assertJsonPath('data.current_calling.queue_number', $res2['ticket']['queue_number']);
 });
-

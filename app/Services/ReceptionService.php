@@ -13,7 +13,9 @@ use App\Models\Patient;
 use App\Models\QueueAcquisition;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
+use App\Models\Station;
 use App\Models\Visit;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -28,7 +30,7 @@ class ReceptionService
     /**
      * Get the current reception queue state for a department.
      *
-     * @return array{station: \App\Models\Station, current_calling: ?QueueTicket, waiting: \Illuminate\Database\Eloquent\Collection, waiting_count: int, called_count_today: int, on_hold: \Illuminate\Database\Eloquent\Collection}
+     * @return array{station: Station, current_calling: ?QueueTicket, waiting: Collection, waiting_count: int, called_count_today: int, on_hold: Collection}
      */
     public function getReceptionQueue(int $departmentId, ?int $stationId = null): array
     {
