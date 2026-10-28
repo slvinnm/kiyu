@@ -2,115 +2,141 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\IntakeChannel;
-use App\Enums\StationType;
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Api\ReceptionRegisterQueueAcquisitionRequest;
-use App\Http\Requests\Api\ReceptionVisitRequest;
-use App\Http\Resources\PatientResource;
-use App\Http\Resources\QueueAcquisitionResource;
-use App\Http\Resources\VisitResource;
-use App\Models\Department;
-use App\Models\Patient;
-use App\Models\QueueAcquisition;
-use App\Services\QueueAcquisitionService;
+use App\Services\ReceptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ReceptionController extends Controller
 {
-    public function __construct(private QueueAcquisitionService $queueAcquisitionService) {}
+    public function __construct(
+        public ReceptionService $receptionService
+    ) {}
 
-    public function departments(): JsonResponse
+    /**
+     * Call next queue ticket for reception at the resolved registration station.
+     */
+    public function callNext(Request $request): JsonResponse
     {
-        abort_unless(
-            in_array(request()->user()->role, [UserRole::ADMIN, UserRole::RECEPTIONIST], true),
-            403
+        $validated = $request->validate([
+            'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'assigned_to' => ['nullable', 'string'],
+        ]);
+
+        $ticket = $this->receptionService->callNext(
+            departmentId: (int) $validated['department_id'],
+            assignedTo: $validated['assigned_to'] ?? null,
+            stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null
         );
 
-        $departments = Department::query()
-            ->where('is_active', true)
-            ->whereHas('workflows', fn ($query) => $query->where('is_active', true))
-            ->whereHas('stations', function ($query): void {
-                $query
-                    ->where('type', StationType::REGISTRATION->value)
-                    ->where('is_active', true);
-            })
-            ->orderBy('name')
-            ->get(['id', 'code', 'name']);
+        if (! $ticket) {
+            return response()->json([
+                'message' => 'No eligible tickets in reception queue.',
+                'data' => null,
+            ]);
+        }
 
         return response()->json([
-            'success' => true,
-            'message' => 'Reception departments retrieved successfully.',
-            'data' => $departments,
+            'message' => "Ticket {$ticket->queue_number} called for reception.",
+            'data' => $ticket,
         ]);
     }
 
-    public function store(ReceptionVisitRequest $request): JsonResponse
+    /**
+     * Complete patient registration.
+     */
+    public function completeRegistration(Request $request): JsonResponse
     {
-        $acquisition = $this->queueAcquisitionService->createReception(
-            data: $request->validated(),
-            createdBy: $request->user(),
-            channel: IntakeChannel::WALK_IN,
-        );
-
-        $visit = $acquisition->visit->load([
-            'department',
-            'queueTickets.station',
-            'queueTickets.visitWorkflowStep.workflowStep',
+        $validated = $request->validate([
+            'acquisition_id' => ['required', 'integer', 'exists:queue_acquisitions,id'],
+            'patient_id' => ['nullable', 'integer', 'exists:patients,id'],
+            'patient_data' => ['nullable', 'array'],
+            'patient_data.name' => ['required_with:patient_data', 'string', 'max:255'],
+            'patient_data.nik' => ['nullable', 'string', 'max:50'],
+            'patient_data.mrn' => ['nullable', 'string', 'max:50'],
+            'patient_data.date_of_birth' => ['nullable', 'date'],
+            'patient_data.gender' => ['nullable', 'string'],
+            'patient_data.phone' => ['nullable', 'string'],
+            'patient_data.email' => ['nullable', 'email'],
+            'patient_data.address' => ['nullable', 'string'],
+            'priority' => ['nullable', 'integer', 'in:1,2,3'],
+            'registered_by' => ['nullable', 'string'],
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Walk-in visit registered successfully.',
-            'data' => new VisitResource($visit),
-        ], 201);
-    }
-
-    public function patients(Request $request): JsonResponse
-    {
-        abort_unless(in_array($request->user()->role, [UserRole::ADMIN, UserRole::RECEPTIONIST], true), 403);
-
-        $search = trim($request->string('search')->toString());
-
-        $patients = Patient::query()
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->where(function ($query) use ($search): void {
-                    $query
-                        ->where('name', 'like', "%{$search}%")
-                        ->orWhere('medical_record_number', $search)
-                        ->orWhere('national_id', $search)
-                        ->orWhere('phone', $search);
-                });
-            })
-            ->orderBy('name')
-            ->limit(20)
-            ->get();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Patients retrieved successfully.',
-            'data' => PatientResource::collection($patients),
-        ]);
-    }
-
-    public function registerQueueAcquisition(
-        ReceptionRegisterQueueAcquisitionRequest $request,
-        QueueAcquisition $queueAcquisition,
-    ): JsonResponse {
-        $patient = Patient::query()->findOrFail($request->integer('patient_id'));
-
-        $acquisition = $this->queueAcquisitionService->attachPatient(
-            acquisition: $queueAcquisition,
-            patient: $patient,
-            registeredBy: $request->user(),
+        $result = $this->receptionService->completeRegistration(
+            acquisitionId: (int) $validated['acquisition_id'],
+            patientId: isset($validated['patient_id']) ? (int) $validated['patient_id'] : null,
+            patientData: $validated['patient_data'] ?? null,
+            priority: isset($validated['priority']) ? (int) $validated['priority'] : null,
+            registeredBy: $validated['registered_by'] ?? null
         );
 
         return response()->json([
-            'success' => true,
-            'message' => 'Patient linked to queue acquisition successfully.',
-            'data' => new QueueAcquisitionResource($acquisition),
+            'message' => 'Registration completed successfully and clinical ticket created.',
+            'data' => $result,
+        ]);
+    }
+
+    /**
+     * Recall a reception ticket (announce again).
+     */
+    public function recall(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'assigned_to' => ['nullable', 'string'],
+        ]);
+
+        $ticket = $this->receptionService->recall(
+            ticketId: $id,
+            assignedTo: $validated['assigned_to'] ?? null
+        );
+
+        return response()->json([
+            'message' => "Ticket {$ticket->queue_number} recalled for reception.",
+            'data' => $ticket,
+        ]);
+    }
+
+    /**
+     * Skip a reception ticket.
+     */
+    public function skip(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string'],
+            'user_id' => ['nullable', 'string'],
+        ]);
+
+        $ticket = $this->receptionService->skip(
+            ticketId: $id,
+            reason: $validated['reason'] ?? null,
+            userId: $validated['user_id'] ?? null
+        );
+
+        return response()->json([
+            'message' => "Ticket {$ticket->queue_number} skipped.",
+            'data' => $ticket,
+        ]);
+    }
+
+    /**
+     * Mark a reception ticket as no-show.
+     */
+    public function noShow(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'user_id' => ['nullable', 'string'],
+        ]);
+
+        $ticket = $this->receptionService->noShow(
+            ticketId: $id,
+            userId: $validated['user_id'] ?? null
+        );
+
+        return response()->json([
+            'message' => "Ticket {$ticket->queue_number} marked no-show.",
+            'data' => $ticket,
         ]);
     }
 }

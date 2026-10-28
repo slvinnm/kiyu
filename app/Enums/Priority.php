@@ -4,16 +4,19 @@ namespace App\Enums;
 
 enum Priority: int
 {
-    case NORMAL = 1;
-    case PRIORITY = 2;
-    case EMERGENCY = 3;
+    case Normal = 1;
+    case Priority = 2;
+    case Emergency = 3;
 
+    /**
+     * Get label for priority level.
+     */
     public function label(): string
     {
         return match ($this) {
-            self::NORMAL => 'Normal',
-            self::PRIORITY => 'Priority (Elderly/Pregnant/Disabled)',
-            self::EMERGENCY => 'Emergency',
+            self::Normal => 'NORMAL',
+            self::Priority => 'PRIORITY',
+            self::Emergency => 'EMERGENCY',
         };
     }
 }

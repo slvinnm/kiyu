@@ -2,69 +2,78 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\Priority;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Api\CreateReferralRequest;
-use App\Http\Resources\ReferralResource;
-use App\Models\Department;
 use App\Models\Referral;
-use App\Models\Visit;
 use App\Services\ReferralService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Gate;
+use Illuminate\Http\Request;
 
 class ReferralController extends Controller
 {
-    public function __construct(private ReferralService $referralService) {}
+    public function __construct(
+        public ReferralService $referralService
+    ) {}
 
-    public function store(
-        CreateReferralRequest $request,
-        Visit $visit,
-    ): JsonResponse {
-        $user = $request->user();
-        $this->authorize('refer', $visit);
+    /**
+     * List referrals.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $query = Referral::query()->with(['sourceVisit.patient', 'targetDepartment', 'targetVisit']);
 
-        $visit->load('department');
+        if ($request->has('source_visit_id')) {
+            $query->where('source_visit_id', $request->input('source_visit_id'));
+        }
 
-        $targetDepartment = Department::query()->findOrFail(
-            $request->integer('target_department_id'),
-        );
+        if ($request->has('target_department_id')) {
+            $query->where('target_department_id', $request->input('target_department_id'));
+        }
 
-        $referral = $this->referralService->create(
-            sourceVisitId: $visit->id,
-            targetDepartmentId: $targetDepartment->id,
-            referredByUserId: $user->id,
-            reason: $request->input('reason'),
-            priority: $request->filled('priority')
-                ? Priority::from($request->integer('priority'))
-                : null,
+        if ($request->has('status')) {
+            $query->where('status', $request->input('status'));
+        }
+
+        return response()->json([
+            'data' => $query->latest('id')->paginate($request->input('per_page', 20)),
+        ]);
+    }
+
+    /**
+     * Create a new referral to another department.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'source_visit_id' => ['required', 'integer', 'exists:visits,id'],
+            'target_department_id' => ['required', 'integer', 'exists:departments,id'],
+            'priority' => ['nullable', 'integer', 'in:1,2,3'],
+            'reason' => ['nullable', 'string'],
+            'referred_by' => ['nullable', 'string'],
+        ]);
+
+        $result = $this->referralService->createReferral(
+            sourceVisitId: (int) $validated['source_visit_id'],
+            targetDepartmentId: (int) $validated['target_department_id'],
+            priority: isset($validated['priority']) ? (int) $validated['priority'] : null,
+            reason: $validated['reason'] ?? null,
+            referredBy: $validated['referred_by'] ?? null
         );
 
         return response()->json([
-            'success' => true,
-            'message' => 'Referral created successfully.',
-            'data' => new ReferralResource($referral->load([
-                'sourceVisit.department',
-                'targetDepartment',
-                'targetVisit.queueTickets.station',
-                'targetVisit.queueTickets.visitWorkflowStep.workflowStep',
-            ])),
+            'message' => 'Referral created and target queue ticket generated.',
+            'data' => $result,
         ], 201);
     }
 
-    public function show(Referral $referral): JsonResponse
+    /**
+     * Show a referral.
+     */
+    public function show(int $id): JsonResponse
     {
-        Gate::authorize('view', $referral);
+        $referral = Referral::query()
+            ->with(['sourceVisit.patient', 'targetDepartment', 'targetVisit.queueTickets'])
+            ->findOrFail($id);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Referral retrieved successfully.',
-            'data' => new ReferralResource($referral->load([
-                'sourceVisit.department',
-                'targetDepartment',
-                'targetVisit.queueTickets.station',
-                'targetVisit.queueTickets.visitWorkflowStep.workflowStep',
-            ])),
-        ]);
+        return response()->json(['data' => $referral]);
     }
 }

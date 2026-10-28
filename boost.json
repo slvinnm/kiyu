@@ -1,9 +1,6 @@
 {
     "agents": [
-        "claude_code",
-        "antigravity",
-        "opencode",
-        "codex"
+        "claude_code"
     ],
     "cloud": true,
     "guidelines": true,
@@ -14,9 +11,6 @@
         "infer-conventions",
         "deploying-to-cloud",
         "laravel-best-practices",
-        "testing-best-practices",
-        "wayfinder-development",
-        "inertia-react-development",
-        "tailwindcss-development"
+        "testing-best-practices"
     ]
 }

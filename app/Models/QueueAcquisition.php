@@ -12,36 +12,43 @@ class QueueAcquisition extends Model
 {
     use HasFactory;
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
     protected $fillable = [
-        'department_id',
         'visit_id',
+        'department_id',
         'channel',
-        'idempotency_key',
         'status',
+        'idempotency_key',
         'registered_by',
-        'acquired_at',
-        'registered_at',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
     protected $casts = [
         'channel' => IntakeChannel::class,
         'status' => QueueAcquisitionStatus::class,
-        'acquired_at' => 'datetime',
-        'registered_at' => 'datetime',
     ];
 
-    public function department(): BelongsTo
-    {
-        return $this->belongsTo(Department::class);
-    }
-
+    /**
+     * Get the visit associated with this acquisition.
+     */
     public function visit(): BelongsTo
     {
         return $this->belongsTo(Visit::class);
     }
 
-    public function registeredBy(): BelongsTo
+    /**
+     * Get the department for this acquisition.
+     */
+    public function department(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'registered_by');
+        return $this->belongsTo(Department::class);
     }
 }

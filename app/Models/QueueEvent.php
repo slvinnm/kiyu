@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Enums\QueueEventType;
-use App\Enums\QueueStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,6 +11,11 @@ class QueueEvent extends Model
 {
     use HasFactory;
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
     protected $fillable = [
         'queue_ticket_id',
         'event_type',
@@ -21,20 +25,21 @@ class QueueEvent extends Model
         'payload',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
     protected $casts = [
         'event_type' => QueueEventType::class,
-        'from_status' => QueueStatus::class,
-        'to_status' => QueueStatus::class,
         'payload' => 'array',
     ];
 
-    public function ticket(): BelongsTo
+    /**
+     * Get the queue ticket this event belongs to.
+     */
+    public function queueTicket(): BelongsTo
     {
-        return $this->belongsTo(QueueTicket::class, 'queue_ticket_id');
-    }
-
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(QueueTicket::class);
     }
 }

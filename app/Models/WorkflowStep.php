@@ -5,19 +5,23 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WorkflowStep extends Model
 {
     use HasFactory;
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
     protected $fillable = [
-        'workflow_version_id',
+        'workflow_id',
         'station_id',
         'name',
         'sequence',
-        'requires_queue',
+        'is_active',
         'is_optional',
         'is_repeatable',
         'can_skip',
@@ -25,8 +29,14 @@ class WorkflowStep extends Model
         'entry_conditions',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
     protected $casts = [
-        'requires_queue' => 'boolean',
+        'sequence' => 'integer',
+        'is_active' => 'boolean',
         'is_optional' => 'boolean',
         'is_repeatable' => 'boolean',
         'can_skip' => 'boolean',
@@ -34,23 +44,27 @@ class WorkflowStep extends Model
         'entry_conditions' => 'array',
     ];
 
-    public function workflowVersion(): BelongsTo
+    /**
+     * Get the workflow that owns the step.
+     */
+    public function workflow(): BelongsTo
     {
-        return $this->belongsTo(WorkflowVersion::class);
+        return $this->belongsTo(Workflow::class);
     }
 
+    /**
+     * Get the station for this workflow step.
+     */
     public function station(): BelongsTo
     {
         return $this->belongsTo(Station::class);
     }
 
-    public function stations(): BelongsToMany
+    /**
+     * Get the queue tickets created for this step.
+     */
+    public function queueTickets(): HasMany
     {
-        return $this->belongsToMany(Station::class, 'workflow_step_stations');
-    }
-
-    public function visitWorkflowSteps(): HasMany
-    {
-        return $this->hasMany(VisitWorkflowStep::class);
+        return $this->hasMany(QueueTicket::class);
     }
 }
