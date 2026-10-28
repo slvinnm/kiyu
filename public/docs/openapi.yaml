@@ -1,0 +1,2619 @@
+openapi: 3.0.3
+info:
+  title: Kiyu Hospital Queue & Workflow Management API
+  description: |
+    Comprehensive API Documentation for **Kiyu Hospital Queue System**.
+
+    ### Overview & Architecture
+    - **Intake Channels**: Kiosk, Manual (Reception Desk), Online Booking with Kiosk Check-In.
+    - **Queue Phases**:
+      1. Reception Queue (`QueueAcquisition` & Initial `QueueTicket` at Registration Station).
+      2. Clinical Station Queue (Nurse, Doctor, Laboratory, Pharmacy, Billing).
+    - **Core Entities**:
+      - `Patient`: Demographics, NIK, MRN.
+      - `Visit`: Encapsulates a patient encounter and workflow progression.
+      - `QueueAcquisition`: Tracks initial intake claim from Kiosk/Online/Manual.
+      - `QueueTicket`: Specific ticket assigned to a Station in the workflow.
+      - `QueueEvent`: Immutable audit trail of ticket lifecycle events (CALLED, STARTED, HELD, etc.).
+      - `Referral`: Inter-department consultation/referral flow.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api
+    description: Local Development Server
+  - url: http://kiyu.test/api
+    description: Local Development Server via url
+
+tags:
+  - name: 1. Intake Channel
+    description: Patient arrivals, kiosk tickets, and online booking check-ins
+  - name: 2. Queue Acquisitions
+    description: Manage and view intake acquisition records
+  - name: 3. Reception & Registration
+    description: Front-desk calling, skipping, and finalizing patient admission
+  - name: 4. Clinical Queue Operations
+    description: Calling, starting, holding, completing, skipping, transferring tickets at clinical stations
+  - name: 5. Tickets
+    description: Direct ticket queries and event logs
+  - name: 6. Public Display
+    description: Non-PII queue status for waiting room displays/TVs
+  - name: 7. Visits
+    description: Patient encounter lifecycle and priority management
+  - name: 8. Referrals
+    description: Inter-department referral creation and tracking
+  - name: 9. Departments
+    description: Hospital clinic/polyclinic management
+  - name: 10. Stations
+    description: Service counters, consultation rooms, and operational queues
+  - name: 11. Workflows
+    description: Multi-step routing definitions and station sequencing
+  - name: 12. Patients
+    description: Master patient index (NIK, MRN, contact info)
+  - name: 13. Audit Logs
+    description: System-wide audit trails
+
+paths:
+  # ==========================================
+  # 1. INTAKE CHANNELS
+  # ==========================================
+  /intake/kiosk:
+    post:
+      tags:
+        - 1. Intake Channel
+      summary: Create Kiosk Walk-in Intake
+      description: Generates a walk-in queue ticket at the Kiosk. Automatically attaches to the department's registration station.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - department_id
+              properties:
+                department_id:
+                  type: integer
+                  example: 1
+                  description: ID of target Department
+                priority:
+                  type: integer
+                  enum: [1, 2, 3]
+                  default: 1
+                  description: "1 = NORMAL, 2 = PRIORITY, 3 = EMERGENCY"
+                  example: 1
+                idempotency_key:
+                  type: string
+                  maxLength: 100
+                  example: "kiosk-tx-9948271a"
+                  description: Optional idempotency token to prevent double-printing
+      responses:
+        201:
+          description: Kiosk intake created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KioskIntakeResponse"
+        422:
+          $ref: "#/components/responses/ValidationError"
+
+  /intake/manual:
+    post:
+      tags:
+        - 1. Intake Channel
+      summary: Create Manual Walk-in Intake (Reception)
+      description: Front-desk staff manually issues a ticket for patients who cannot use the kiosk.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - department_id
+              properties:
+                department_id:
+                  type: integer
+                  example: 1
+                priority:
+                  type: integer
+                  enum: [1, 2, 3]
+                  default: 1
+                  example: 2
+                registered_by:
+                  type: string
+                  example: "Staff_Siti"
+                  description: Username/Staff ID of the officer creating intake
+                idempotency_key:
+                  type: string
+                  maxLength: 100
+                  example: "manual-tx-88123"
+      responses:
+        201:
+          description: Manual intake created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KioskIntakeResponse"
+        422:
+          $ref: "#/components/responses/ValidationError"
+
+  /intake/online:
+    post:
+      tags:
+        - 1. Intake Channel
+      summary: Create Online Booking
+      description: Pre-registers an existing patient online. Does NOT generate a physical queue ticket yet; generates an `online_active_key` and QR identifier for kiosk check-in upon arrival.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - patient_id
+                - department_id
+              properties:
+                patient_id:
+                  type: integer
+                  example: 5
+                  description: Existing Patient ID
+                department_id:
+                  type: integer
+                  example: 1
+                  description: Target Department ID
+                priority:
+                  type: integer
+                  enum: [1, 2, 3]
+                  default: 1
+                  example: 1
+                idempotency_key:
+                  type: string
+                  maxLength: 100
+                  example: "online-booking-uuid-771"
+      responses:
+        201:
+          description: Online booking created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Online booking created successfully. Patient must check in at kiosk upon arrival."
+                  data:
+                    type: object
+                    properties:
+                      visit:
+                        $ref: "#/components/schemas/Visit"
+                      acquisition:
+                        $ref: "#/components/schemas/QueueAcquisition"
+                      ticket:
+                        type: object
+                        nullable: true
+                        example: null
+        422:
+          $ref: "#/components/responses/ValidationError"
+
+  /intake/online-lookup/{identifier}:
+    get:
+      tags:
+        - 1. Intake Channel
+      summary: Preview / Lookup Online Booking
+      description: Lookup an online booking by `visit_number`, `online_active_key`, or `patient MRN/NIK` on kiosk screen prior to confirming check-in.
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Visit number, online UUID key, or Patient NIK/MRN
+          example: "V-20261028-0001"
+      responses:
+        200:
+          description: Booking preview details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Online booking preview retrieved."
+                  data:
+                    type: object
+                    properties:
+                      visit_id:
+                        type: integer
+                        example: 12
+                      visit_number:
+                        type: string
+                        example: "V-20261028-0001"
+                      online_active_key:
+                        type: string
+                        example: "9e3b4a2e-9bb4-4cf1-8316-24a9194ec710"
+                      patient_name:
+                        type: string
+                        example: "Ahmad Dahlan"
+                      patient_mrn:
+                        type: string
+                        example: "MRN-K89324"
+                      department_name:
+                        type: string
+                        example: "Poli Umum"
+                      status:
+                        type: string
+                        example: "AWAITING_CHECKIN"
+                      priority:
+                        type: string
+                        example: "NORMAL"
+        404:
+          $ref: "#/components/responses/NotFound"
+
+  /intake/online-checkin:
+    post:
+      tags:
+        - 1. Intake Channel
+      summary: Perform Kiosk Self Check-in for Online Booking
+      description: Verifies booking identifier, activates the visit (`WAITING`), and generates the physical registration queue ticket.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - booking_identifier
+              properties:
+                booking_identifier:
+                  type: string
+                  example: "9e3b4a2e-9bb4-4cf1-8316-24a9194ec710"
+                  description: Online active key or Visit Number
+      responses:
+        200:
+          description: Check-in successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Check-in successful. Patient has entered the reception queue."
+                  data:
+                    $ref: "#/components/schemas/KioskIntakeResponseData"
+        404:
+          $ref: "#/components/responses/NotFound"
+        409:
+          description: Business Conflict (e.g. Visit already checked in or cancelled)
+
+  # ==========================================
+  # 2. QUEUE ACQUISITIONS
+  # ==========================================
+  /queue-acquisitions:
+    get:
+      tags:
+        - 2. Queue Acquisitions
+      summary: List Queue Acquisitions
+      description: Filter and view intake acquisitions across channels.
+      parameters:
+        - name: channel
+          in: query
+          schema:
+            type: string
+            enum: [ONLINE, KIOSK, MANUAL]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACQUIRED, REGISTERED, CANCELLED]
+        - name: department_id
+          in: query
+          schema:
+            type: integer
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: "2026-10-28"
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        200:
+          description: Paginated acquisition list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAcquisition"
+
+  /queue-acquisitions/{id}:
+    get:
+      tags:
+        - 2. Queue Acquisitions
+      summary: Get Single Acquisition
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Acquisition detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Queue acquisition retrieved successfully."
+                  data:
+                    $ref: "#/components/schemas/QueueAcquisition"
+
+  /queue-acquisitions/{id}/cancel:
+    post:
+      tags:
+        - 2. Queue Acquisitions
+      summary: Cancel Queue Acquisition
+      description: Cancels an unprocessed acquisition (e.g., patient abandons queue before registration).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+                  example: "Patient left hospital"
+                user_id:
+                  type: string
+                  example: "staff_01"
+      responses:
+        200:
+          description: Acquisition cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Queue acquisition cancelled successfully."
+                  data:
+                    $ref: "#/components/schemas/QueueAcquisition"
+
+  # ==========================================
+  # 3. RECEPTION & REGISTRATION
+  # ==========================================
+  /reception/queue:
+    get:
+      tags:
+        - 3. Reception & Registration
+      summary: Get Reception Queue
+      description: Returns all tickets currently waiting, called, or in-progress at the reception/registration counter for a department.
+      parameters:
+        - name: department_id
+          in: query
+          required: true
+          schema:
+            type: integer
+          example: 1
+        - name: station_id
+          in: query
+          schema:
+            type: integer
+          description: Optional station filter
+      responses:
+        200:
+          description: Reception queue tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Reception queue retrieved successfully."
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueueTicket"
+
+  /reception/call-next:
+    post:
+      tags:
+        - 3. Reception & Registration
+      summary: Call Next Patient at Reception
+      description: Finds the highest priority waiting ticket (EMERGENCY > PRIORITY > NORMAL) and calls them to the counter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - department_id
+              properties:
+                department_id:
+                  type: integer
+                  example: 1
+                station_id:
+                  type: integer
+                  example: 1
+                assigned_to:
+                  type: string
+                  example: "Nurse_Ani"
+      responses:
+        200:
+          description: Next ticket called or no tickets waiting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Next ticket A001 called."
+                  data:
+                    $ref: "#/components/schemas/QueueTicket"
+
+  /reception/complete-registration:
+    post:
+      tags:
+        - 3. Reception & Registration
+      summary: Complete Patient Registration
+      description: Front desk binds patient identity (existing or new), marks acquisition REGISTERED, completes the registration ticket, and initiates Step 2 of the workflow (e.g. Nurse triage ticket).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - acquisition_id
+              properties:
+                acquisition_id:
+                  type: integer
+                  example: 1
+                patient_id:
+                  type: integer
+                  example: 5
+                  description: Optional if using existing patient
+                patient_data:
+                  type: object
+                  description: Required if creating a new patient record
+                  properties:
+                    name:
+                      type: string
+                      example: "Budi Santoso"
+                    nik:
+                      type: string
+                      example: "3171012345670001"
+                    mrn:
+                      type: string
+                      example: "MRN-20261028-01"
+                    date_of_birth:
+                      type: string
+                      format: date
+                      example: "1990-05-15"
+                    gender:
+                      type: string
+                      example: "M"
+                    phone:
+                      type: string
+                      example: "081234567890"
+                    email:
+                      type: string
+                      example: "budi@example.com"
+                    address:
+                      type: string
+                      example: "Jl. Sudirman No. 10 Jakarta"
+                priority:
+                  type: integer
+                  enum: [1, 2, 3]
+                  example: 1
+                registered_by:
+                  type: string
+                  example: "Staff_Siti"
+      responses:
+        200:
+          description: Registration completed and next step queue ticket created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Registration completed successfully. Ticket dispatched to next workflow step."
+                  data:
+                    type: object
+                    properties:
+                      visit:
+                        $ref: "#/components/schemas/Visit"
+                      next_ticket:
+                        $ref: "#/components/schemas/QueueTicket"
+                      patient:
+                        $ref: "#/components/schemas/Patient"
+
+  /reception/{ticketId}/recall:
+    post:
+      tags:
+        - 3. Reception & Registration
+      summary: Re-call Reception Ticket
+      description: Repeats the audio/display call for a ticket that is already in CALLED status.
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assigned_to:
+                  type: string
+                  example: "Nurse_Ani"
+      responses:
+        200:
+          description: Ticket re-called
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Ticket A001 recalled."
+                  data:
+                    $ref: "#/components/schemas/QueueTicket"
+
+  /reception/{ticketId}/skip:
+    post:
+      tags:
+        - 3. Reception & Registration
+      summary: Skip Reception Ticket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  example: "Patient stepped away"
+                user_id:
+                  type: string
+                  example: "staff_01"
+      responses:
+        200:
+          description: Ticket marked SKIPPED
+
+  /reception/{ticketId}/no-show:
+    post:
+      tags:
+        - 3. Reception & Registration
+      summary: Mark Reception Ticket No-Show
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                  example: "staff_01"
+      responses:
+        200:
+          description: Ticket marked NO_SHOW
+
+  # ==========================================
+  # 4. CLINICAL QUEUE OPERATIONS
+  # ==========================================
+  /clinical/call-next:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Call Next Patient at Clinical Station
+      description: Station operator (Doctor/Nurse/Lab) calls the next waiting patient at their station.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - station_id
+              properties:
+                station_id:
+                  type: integer
+                  example: 2
+                  description: Station ID
+                assigned_to:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Patient called
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Next ticket B001 called."
+                  data:
+                    $ref: "#/components/schemas/QueueTicket"
+
+  /tickets/{id}/start:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Start Service for Ticket
+      description: Changes ticket status from `CALLED` to `IN_PROGRESS`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Service started
+
+  /tickets/{id}/hold:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Put Ticket On Hold
+      description: Pauses service (e.g. waiting for blood test results or doctor consultation).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  example: "Waiting for lab urine test"
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket put on hold
+
+  /tickets/{id}/resume:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Resume On-Hold Ticket
+      description: Returns ticket to `IN_PROGRESS`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket resumed
+
+  /tickets/{id}/complete:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Complete Ticket & Advance Workflow
+      description: Marks current ticket COMPLETED and automatically transitions patient to the next workflow step (or completes the visit if last step).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  example: "Examination finished, prescription written"
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket completed, next step initiated
+
+  /tickets/{id}/recall:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Recall Clinical Ticket
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket re-called
+
+  /tickets/{id}/skip:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Skip Ticket
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  example: "Patient not responsive when called"
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket skipped
+
+  /tickets/{id}/no-show:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Mark Ticket No-Show
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  example: "Patient did not show up after 3 calls"
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket marked no-show
+
+  /tickets/{id}/cancel:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Cancel Ticket
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  example: "Cancelled by patient request"
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket cancelled
+
+  /tickets/{id}/transfer:
+    post:
+      tags:
+        - 4. Clinical Queue Operations
+      summary: Transfer Ticket to Another Station
+      description: Transfers patient queue to a different station, marking old ticket `TRANSFERRED` and creating a new ticket with origin linked.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_station_id
+              properties:
+                target_station_id:
+                  type: integer
+                  example: 3
+                notes:
+                  type: string
+                  example: "Transferred to radiology for X-Ray check"
+                user_id:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        200:
+          description: Ticket transferred successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Ticket transferred successfully."
+                  data:
+                    $ref: "#/components/schemas/QueueTicket"
+
+  # ==========================================
+  # 5. TICKETS
+  # ==========================================
+  /tickets:
+    get:
+      tags:
+        - 5. Tickets
+      summary: List Tickets
+      description: Search and filter queue tickets across all stations.
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              [
+                CREATED,
+                CALLED,
+                IN_PROGRESS,
+                ON_HOLD,
+                COMPLETED,
+                SKIPPED,
+                CANCELLED,
+                NO_SHOW,
+                TRANSFERRED,
+              ]
+        - name: visit_id
+          in: query
+          schema:
+            type: integer
+        - name: priority
+          in: query
+          schema:
+            type: integer
+            enum: [1, 2, 3]
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: "2026-10-28"
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        200:
+          description: Paginated tickets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedTickets"
+
+  /tickets/{id}:
+    get:
+      tags:
+        - 5. Tickets
+      summary: Get Single Ticket
+      description: Complete ticket details with relations (station, workflowStep, visit.patient, events).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Ticket detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/QueueTicket"
+
+  /tickets/{id}/events:
+    get:
+      tags:
+        - 5. Tickets
+      summary: Get Ticket Audit Events
+      description: Returns timeline of state changes for the ticket (CREATED, CALLED, STARTED, COMPLETED, etc.).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: List of queue events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueueEvent"
+
+  # ==========================================
+  # 6. PUBLIC QUEUE DISPLAY
+  # ==========================================
+  /public/queue:
+    get:
+      tags:
+        - 6. Public Display
+      summary: Get Public Queue Status (No PII)
+      description: Sanitized data feed for public waiting room TVs, display kiosks, or patient mobile screens. Does NOT expose patient names, NIK, or medical records.
+      parameters:
+        - name: station_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by specific station
+        - name: department_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by department
+      responses:
+        200:
+          description: Station display list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PublicQueueStation"
+
+  # ==========================================
+  # 7. VISITS
+  # ==========================================
+  /visits:
+    get:
+      tags:
+        - 7. Visits
+      summary: List Visits
+      parameters:
+        - name: department_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [AWAITING_CHECKIN, WAITING, IN_PROGRESS, COMPLETED, CANCELLED]
+        - name: patient_id
+          in: query
+          schema:
+            type: integer
+        - name: intake_channel
+          in: query
+          schema:
+            type: string
+            enum: [ONLINE, KIOSK, MANUAL]
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        200:
+          description: Paginated visits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedVisits"
+
+  /visits/{id}:
+    get:
+      tags:
+        - 7. Visits
+      summary: Get Single Visit
+      description: Full deep graph of visit including patient, department, workflow, queueAcquisitions, tickets with events, and outgoing referrals.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Visit detailed object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Visit"
+
+  /visits/{id}/priority:
+    patch:
+      tags:
+        - 7. Visits
+      summary: Update Visit Priority
+      description: Updates encounter priority (e.g. escalating to EMERGENCY) and immediately propagates the new priority to all active tickets.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - priority
+              properties:
+                priority:
+                  type: integer
+                  enum: [1, 2, 3]
+                  example: 3
+                user_id:
+                  type: string
+                  example: "Triage_Nurse_01"
+      responses:
+        200:
+          description: Priority updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Priority updated to EMERGENCY and propagated to active tickets."
+                  data:
+                    $ref: "#/components/schemas/Visit"
+
+  /visits/{id}/cancel:
+    post:
+      tags:
+        - 7. Visits
+      summary: Cancel Visit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  example: "Patient chose to reschedule"
+                user_id:
+                  type: string
+                  example: "staff_01"
+      responses:
+        200:
+          description: Visit cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Visit cancelled successfully."
+                  data:
+                    $ref: "#/components/schemas/Visit"
+
+  # ==========================================
+  # 8. REFERRALS
+  # ==========================================
+  /referrals:
+    get:
+      tags:
+        - 8. Referrals
+      summary: List Referrals
+      parameters:
+        - name: source_visit_id
+          in: query
+          schema:
+            type: integer
+        - name: target_department_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, ACCEPTED, COMPLETED, CANCELLED]
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        200:
+          description: Paginated referrals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedReferrals"
+
+    post:
+      tags:
+        - 8. Referrals
+      summary: Create Inter-Department Referral
+      description: Initiates a referral from one clinic/visit to another department (e.g. Poli Umum -> Poli Gigi).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - source_visit_id
+                - target_department_id
+              properties:
+                source_visit_id:
+                  type: integer
+                  example: 1
+                target_department_id:
+                  type: integer
+                  example: 2
+                priority:
+                  type: integer
+                  enum: [1, 2, 3]
+                  default: 1
+                  example: 2
+                reason:
+                  type: string
+                  example: "Requires specialist dental consultation"
+                referred_by:
+                  type: string
+                  example: "Dr. Hartono"
+      responses:
+        201:
+          description: Referral created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Referral created successfully."
+                  data:
+                    $ref: "#/components/schemas/Referral"
+
+  /referrals/{id}:
+    get:
+      tags:
+        - 8. Referrals
+      summary: Get Referral Details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Referral details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Referral"
+
+  # ==========================================
+  # 9. DEPARTMENTS
+  # ==========================================
+  /departments/active:
+    get:
+      tags:
+        - 9. Departments
+      summary: List Active Departments (For Kiosks)
+      description: Fast endpoint for kiosk selection screens listing only active clinics with their stations.
+      responses:
+        200:
+          description: Active departments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Department"
+
+  /departments:
+    get:
+      tags:
+        - 9. Departments
+      summary: List All Departments
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Department"
+    post:
+      tags:
+        - 9. Departments
+      summary: Create Department
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+                - name
+              properties:
+                code:
+                  type: string
+                  example: "POLI-GIGI"
+                name:
+                  type: string
+                  example: "Poli Gigi & Mulut"
+                is_active:
+                  type: boolean
+                  default: true
+      responses:
+        201:
+          description: Department created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Department created successfully."
+                  data:
+                    $ref: "#/components/schemas/Department"
+
+  /departments/{id}:
+    get:
+      tags:
+        - 9. Departments
+      summary: Get Department Details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Department"
+    put:
+      tags:
+        - 9. Departments
+      summary: Update Department
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  example: "POLI-GIGI"
+                name:
+                  type: string
+                  example: "Poliklinik Gigi & Mulut Spesialis"
+                is_active:
+                  type: boolean
+                  example: true
+      responses:
+        200:
+          description: Department updated
+
+  /departments/{id}/stations:
+    get:
+      tags:
+        - 9. Departments
+      summary: List Stations for Department
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Station"
+
+  /departments/{id}/workflows:
+    get:
+      tags:
+        - 9. Departments
+      summary: List Workflows for Department
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Workflow"
+
+  # ==========================================
+  # 10. STATIONS
+  # ==========================================
+  /stations:
+    get:
+      tags:
+        - 10. Stations
+      summary: List All Stations
+      parameters:
+        - name: department_id
+          in: query
+          schema:
+            type: integer
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [REGISTRATION, NURSE, DOCTOR, LABORATORY, PHARMACY, BILLING]
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Station"
+    post:
+      tags:
+        - 10. Stations
+      summary: Create Station
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - department_id
+                - name
+                - code
+                - type
+              properties:
+                department_id:
+                  type: integer
+                  example: 1
+                name:
+                  type: string
+                  example: "Loket Registrasi 1"
+                code:
+                  type: string
+                  example: "REG-01"
+                type:
+                  type: string
+                  enum:
+                    [REGISTRATION, NURSE, DOCTOR, LABORATORY, PHARMACY, BILLING]
+                  example: "REGISTRATION"
+                queue_prefix:
+                  type: string
+                  example: "A"
+                  default: "A"
+                is_active:
+                  type: boolean
+                  default: true
+      responses:
+        201:
+          description: Station created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Station created successfully."
+                  data:
+                    $ref: "#/components/schemas/Station"
+
+  /stations/{id}:
+    get:
+      tags:
+        - 10. Stations
+      summary: Get Station Details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Station"
+    put:
+      tags:
+        - 10. Stations
+      summary: Update Station
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                department_id:
+                  type: integer
+                name:
+                  type: string
+                code:
+                  type: string
+                type:
+                  type: string
+                  enum:
+                    [REGISTRATION, NURSE, DOCTOR, LABORATORY, PHARMACY, BILLING]
+                queue_prefix:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        200:
+          description: Station updated
+
+  /stations/{id}/queue:
+    get:
+      tags:
+        - 10. Stations
+      summary: View Operational Queue for Station
+      description: Returns active tickets at this station sorted strictly by status (IN_PROGRESS > CALLED > CREATED > ON_HOLD), priority, and internal sequence.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Operational station queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  station:
+                    $ref: "#/components/schemas/Station"
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueueTicket"
+
+  # ==========================================
+  # 11. WORKFLOWS & STEPS
+  # ==========================================
+  /workflows:
+    get:
+      tags:
+        - 11. Workflows
+      summary: List Workflows
+      parameters:
+        - name: department_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Workflow"
+    post:
+      tags:
+        - 11. Workflows
+      summary: Create Workflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - department_id
+                - name
+              properties:
+                department_id:
+                  type: integer
+                  example: 1
+                name:
+                  type: string
+                  example: "Standard Outpatient Flow"
+                is_active:
+                  type: boolean
+                  default: true
+      responses:
+        201:
+          description: Workflow created
+
+  /workflows/{id}:
+    get:
+      tags:
+        - 11. Workflows
+      summary: Get Workflow with Steps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Workflow"
+
+  /workflows/{id}/steps:
+    post:
+      tags:
+        - 11. Workflows
+      summary: Add Step to Workflow
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - station_id
+                - name
+                - sequence
+              properties:
+                station_id:
+                  type: integer
+                  example: 2
+                name:
+                  type: string
+                  example: "Triage & Vitals Check"
+                sequence:
+                  type: integer
+                  example: 1
+                is_active:
+                  type: boolean
+                  default: true
+                is_optional:
+                  type: boolean
+                  default: false
+                is_repeatable:
+                  type: boolean
+                  default: false
+                can_skip:
+                  type: boolean
+                  default: false
+                completion_requirements:
+                  type: object
+                  nullable: true
+                  example: { "vitals_recorded": true }
+                entry_conditions:
+                  type: object
+                  nullable: true
+                  example: null
+      responses:
+        201:
+          description: Workflow step added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Workflow step added successfully."
+                  data:
+                    $ref: "#/components/schemas/WorkflowStep"
+
+  /workflow-steps/{id}:
+    put:
+      tags:
+        - 11. Workflows
+      summary: Update Workflow Step
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                station_id:
+                  type: integer
+                name:
+                  type: string
+                sequence:
+                  type: integer
+                is_active:
+                  type: boolean
+                is_optional:
+                  type: boolean
+                is_repeatable:
+                  type: boolean
+                can_skip:
+                  type: boolean
+                completion_requirements:
+                  type: object
+                entry_conditions:
+                  type: object
+      responses:
+        200:
+          description: Workflow step updated
+    delete:
+      tags:
+        - 11. Workflows
+      summary: Delete Workflow Step
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Workflow step deleted
+
+  # ==========================================
+  # 12. PATIENTS
+  # ==========================================
+  /patients:
+    get:
+      tags:
+        - 12. Patients
+      summary: Search and List Patients
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Fuzzy search across name, mrn, nik, or phone
+        - name: nik
+          in: query
+          schema:
+            type: string
+        - name: mrn
+          in: query
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        200:
+          description: Paginated patient list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedPatients"
+
+    post:
+      tags:
+        - 12. Patients
+      summary: Create Patient Record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: "Dewi Lestari"
+                nik:
+                  type: string
+                  example: "3201016503920002"
+                mrn:
+                  type: string
+                  description: Optional - auto-generated if omitted
+                  example: "MRN-20261028-09"
+                date_of_birth:
+                  type: string
+                  format: date
+                  example: "1992-03-25"
+                gender:
+                  type: string
+                  example: "F"
+                phone:
+                  type: string
+                  example: "081987654321"
+                email:
+                  type: string
+                  format: email
+                  example: "dewi.lestari@example.com"
+                address:
+                  type: string
+                  example: "Jl. Melati No. 4 Bandung"
+                user_id:
+                  type: integer
+                  nullable: true
+                  description: Optional linked user login ID
+      responses:
+        201:
+          description: Patient created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Patient created successfully."
+                  data:
+                    $ref: "#/components/schemas/Patient"
+
+  /patients/{id}:
+    get:
+      tags:
+        - 12. Patients
+      summary: Get Patient by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Patient"
+
+    put:
+      tags:
+        - 12. Patients
+      summary: Update Patient Record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                nik:
+                  type: string
+                mrn:
+                  type: string
+                date_of_birth:
+                  type: string
+                  format: date
+                gender:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                address:
+                  type: string
+      responses:
+        200:
+          description: Patient updated successfully
+
+  /patients/{id}/visits:
+    get:
+      tags:
+        - 12. Patients
+      summary: Get Patient Visit History
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Visit"
+
+  # ==========================================
+  # 13. AUDIT LOGS
+  # ==========================================
+  /audit-logs:
+    get:
+      tags:
+        - 13. Audit Logs
+      summary: List Audit Logs
+      parameters:
+        - name: action
+          in: query
+          schema:
+            type: string
+            example: "QUEUE_TICKET_CALLED"
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+            example: "App\\Models\\QueueTicket"
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+            example: "12"
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            example: "Dr. Hartono"
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 25
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAuditLogs"
+
+# ==========================================
+# REUSABLE COMPONENTS & SCHEMAS
+# ==========================================
+components:
+  responses:
+    NotFound:
+      description: Entity not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "No query results for model [App\\Models\\Visit] 999"
+    ValidationError:
+      description: Form Validation Error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "The department_id field is required."
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
+
+  schemas:
+    Department:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        code:
+          type: string
+          example: "POLI-UMUM"
+        name:
+          type: string
+          example: "Poliklinik Umum"
+        is_active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        stations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Station"
+
+    Station:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        department_id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Loket Registrasi 1"
+        code:
+          type: string
+          example: "REG-01"
+        type:
+          type: string
+          enum: [REGISTRATION, NURSE, DOCTOR, LABORATORY, PHARMACY, BILLING]
+          example: "REGISTRATION"
+        queue_prefix:
+          type: string
+          example: "A"
+        is_active:
+          type: boolean
+          example: true
+
+    Workflow:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        department_id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Standard Outpatient Flow"
+        is_active:
+          type: boolean
+          example: true
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowStep"
+
+    WorkflowStep:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        workflow_id:
+          type: integer
+          example: 1
+        station_id:
+          type: integer
+          example: 2
+        name:
+          type: string
+          example: "Triage & Vitals Check"
+        sequence:
+          type: integer
+          example: 1
+        is_active:
+          type: boolean
+          example: true
+        is_optional:
+          type: boolean
+          example: false
+        is_repeatable:
+          type: boolean
+          example: false
+        can_skip:
+          type: boolean
+          example: false
+        completion_requirements:
+          type: object
+          nullable: true
+
+    Patient:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 5
+        name:
+          type: string
+          example: "Budi Santoso"
+        nik:
+          type: string
+          example: "3171012345670001"
+        mrn:
+          type: string
+          example: "MRN-K89324"
+        date_of_birth:
+          type: string
+          format: date
+          example: "1990-05-15"
+        gender:
+          type: string
+          example: "M"
+        phone:
+          type: string
+          example: "081234567890"
+        email:
+          type: string
+          example: "budi@example.com"
+        address:
+          type: string
+          example: "Jl. Sudirman No. 10 Jakarta"
+
+    Visit:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 12
+        visit_number:
+          type: string
+          example: "V-20261028-0001"
+        patient_id:
+          type: integer
+          nullable: true
+          example: 5
+        department_id:
+          type: integer
+          example: 1
+        workflow_id:
+          type: integer
+          example: 1
+        intake_channel:
+          type: string
+          enum: [ONLINE, KIOSK, MANUAL]
+          example: "KIOSK"
+        status:
+          type: string
+          enum: [AWAITING_CHECKIN, WAITING, IN_PROGRESS, COMPLETED, CANCELLED]
+          example: "WAITING"
+        priority:
+          type: integer
+          enum: [1, 2, 3]
+          example: 1
+        online_active_key:
+          type: string
+          nullable: true
+          example: null
+        registered_at:
+          type: string
+          format: date-time
+        checked_in_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    QueueAcquisition:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        visit_id:
+          type: integer
+          example: 12
+        department_id:
+          type: integer
+          example: 1
+        channel:
+          type: string
+          enum: [ONLINE, KIOSK, MANUAL]
+          example: "KIOSK"
+        status:
+          type: string
+          enum: [ACQUIRED, REGISTERED, CANCELLED]
+          example: "ACQUIRED"
+        idempotency_key:
+          type: string
+          nullable: true
+          example: "kiosk-tx-9948271a"
+        registered_by:
+          type: string
+          nullable: true
+          example: null
+
+    QueueTicket:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 101
+        visit_id:
+          type: integer
+          example: 12
+        station_id:
+          type: integer
+          example: 1
+        workflow_step_id:
+          type: integer
+          nullable: true
+          example: null
+        queue_number:
+          type: string
+          example: "A001"
+        internal_sequence:
+          type: integer
+          example: 1
+        priority:
+          type: integer
+          enum: [1, 2, 3]
+          example: 1
+        status:
+          type: string
+          enum:
+            [
+              CREATED,
+              CALLED,
+              IN_PROGRESS,
+              ON_HOLD,
+              COMPLETED,
+              SKIPPED,
+              CANCELLED,
+              NO_SHOW,
+              TRANSFERRED,
+            ]
+          example: "CREATED"
+        assigned_to:
+          type: string
+          nullable: true
+          example: "Nurse_Ani"
+        called_at:
+          type: string
+          format: date-time
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    QueueEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 501
+        queue_ticket_id:
+          type: integer
+          example: 101
+        event_type:
+          type: string
+          enum:
+            [
+              CREATED,
+              CALLED,
+              RECALLED,
+              STARTED,
+              COMPLETED,
+              HELD,
+              RESUMED,
+              SKIPPED,
+              CANCELLED,
+              NO_SHOW,
+              TRANSFERRED,
+            ]
+          example: "CALLED"
+        from_status:
+          type: string
+          example: "CREATED"
+        to_status:
+          type: string
+          example: "CALLED"
+        user_id:
+          type: string
+          nullable: true
+          example: "Nurse_Ani"
+        payload:
+          type: object
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    Referral:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        source_visit_id:
+          type: integer
+          example: 12
+        target_department_id:
+          type: integer
+          example: 2
+        target_visit_id:
+          type: integer
+          nullable: true
+          example: 13
+        priority:
+          type: integer
+          example: 1
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, COMPLETED, CANCELLED]
+          example: "PENDING"
+        reason:
+          type: string
+          example: "Requires specialist dental consultation"
+        referred_by_user_id:
+          type: string
+          example: "Dr. Hartono"
+
+    PublicQueueStation:
+      type: object
+      properties:
+        station_id:
+          type: integer
+          example: 1
+        station_name:
+          type: string
+          example: "Loket Registrasi 1"
+        station_code:
+          type: string
+          example: "REG-01"
+        station_type:
+          type: string
+          example: "REGISTRATION"
+        department_name:
+          type: string
+          example: "Poliklinik Umum"
+        current_calling:
+          type: object
+          nullable: true
+          properties:
+            queue_number:
+              type: string
+              example: "A001"
+            status:
+              type: string
+              example: "CALLED"
+        waiting_count:
+          type: integer
+          example: 4
+        upcoming_queue_numbers:
+          type: array
+          items:
+            type: string
+          example: ["A002", "A003", "A004", "A005"]
+
+    KioskIntakeResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Kiosk intake created successfully."
+        data:
+          $ref: "#/components/schemas/KioskIntakeResponseData"
+
+    KioskIntakeResponseData:
+      type: object
+      properties:
+        visit:
+          $ref: "#/components/schemas/Visit"
+        acquisition:
+          $ref: "#/components/schemas/QueueAcquisition"
+        ticket:
+          $ref: "#/components/schemas/QueueTicket"
+
+    PaginatedAcquisition:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Queue acquisitions retrieved successfully."
+        data:
+          type: object
+          properties:
+            current_page:
+              type: integer
+              example: 1
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/QueueAcquisition"
+            total:
+              type: integer
+              example: 45
+
+    PaginatedTickets:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            current_page:
+              type: integer
+              example: 1
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/QueueTicket"
+            total:
+              type: integer
+              example: 120
+
+    PaginatedVisits:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            current_page:
+              type: integer
+              example: 1
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Visit"
+            total:
+              type: integer
+              example: 30
+
+    PaginatedReferrals:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            current_page:
+              type: integer
+              example: 1
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Referral"
+            total:
+              type: integer
+              example: 5
+
+    PaginatedPatients:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            current_page:
+              type: integer
+              example: 1
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Patient"
+            total:
+              type: integer
+              example: 250
+
+    PaginatedAuditLogs:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            current_page:
+              type: integer
+              example: 1
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    example: 1
+                  action:
+                    type: string
+                    example: "QUEUE_TICKET_CALLED"
+                  entity_type:
+                    type: string
+                    example: "App\\Models\\QueueTicket"
+                  entity_id:
+                    type: string
+                    example: "101"
+                  user_id:
+                    type: string
+                    example: "Nurse_Ani"
+                  metadata:
+                    type: object
+                  ip_address:
+                    type: string
+                    example: "127.0.0.1"
+                  created_at:
+                    type: string
+                    format: date-time
+            total:
+              type: integer
+              example: 500
